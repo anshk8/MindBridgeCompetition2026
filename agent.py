@@ -98,12 +98,20 @@ class QueryWriter:
                 {'role': 'user', 'content': prompt}
             ]
         )
-        return response['message']['content'].strip()
-        #
-        # ============================================================
-
-        raise NotImplementedError("Implement the generate_query method!")
-
+        
+        # Extract SQL query and remove markdown formatting
+        sql_query = response['message']['content'].strip()
+        
+        # Remove markdown code blocks if present
+        if sql_query.startswith('```'):
+            # Remove opening ```sql or ```
+            sql_query = sql_query.split('\n', 1)[1] if '\n' in sql_query else sql_query[3:]
+        if sql_query.endswith('```'):
+            # Remove closing ```
+            sql_query = sql_query.rsplit('```', 1)[0]
+        
+        return sql_query.strip()
+    
     def _format_schema(self) -> str:
         """
         Format the database schema as a string for the LLM prompt.
