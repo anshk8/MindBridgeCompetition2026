@@ -83,22 +83,22 @@ class QueryWriter:
         #
         # Example implementation using Ollama directly:
         #
-        # schema_text = self._format_schema()
-        #
-        # system_prompt = f"""You are a SQL expert. Given the following database schema:
-        # {schema_text}
-        #
-        # Generate a SQL query to answer the user's question.
-        # Return ONLY the SQL query, no explanations."""
-        #
-        # response = self.client.chat(
-        #     model=self.model,
-        #     messages=[
-        #         {'role': 'system', 'content': system_prompt},
-        #         {'role': 'user', 'content': prompt}
-        #     ]
-        # )
-        # return response['message']['content'].strip()
+        schema_text = self._format_schema()
+        
+        system_prompt = f"""You are a SQL expert. Given the following database schema:
+        {schema_text}
+        
+        Generate a SQL query to answer the user's question.
+        Return ONLY the SQL query, no explanations."""
+        
+        response = self.client.chat(
+            model=self.model,
+            messages=[
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': prompt}
+            ]
+        )
+        return response['message']['content'].strip()
         #
         # ============================================================
 
