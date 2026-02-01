@@ -13,16 +13,10 @@ The output provides a structured understanding that guides downstream agents.
 """
 
 import os
-import sys
 import json
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
 import ollama
-
-# Add parent directory to path for imports when running directly
-if __name__ == "__main__":
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 from utils.prompts import QUESTION_DECOMPOSER_SYSTEM_PROMPT
 
 
