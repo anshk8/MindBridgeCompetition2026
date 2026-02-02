@@ -197,13 +197,13 @@ class SchemaScout:
         
         warnings = []
         
-        # Step 1: Discover relevant tables
+        # STEP 1: Discover Tables -> Get Tables via MCP tool -> Check if entities map to tables
         print("\n[1/6] 🔍 Discovering relevant tables...")
         selected_tables = self._discover_tables(question_analysis.entities)
         print(f"   → Found {len(selected_tables)} tables: {', '.join(selected_tables)}")
 
         
-        # Step 2: Retrieve detailed schema for each table and store info
+        # STEP 2: Get Schema -> Get Row Count -> Get Columns, Primary Keys, Foreign Keys
         print("\n[2/6] 📊 Retrieving schema information...")
         table_details = {}
         for table in selected_tables:
@@ -213,21 +213,21 @@ class SchemaScout:
             else:
                 warnings.append(f"Could not retrieve schema for table: {table}")
         
-        # Step 3: Get sample data for each table
+        # STEP 3: Get Sample Data -> Critical to prevent hallucination
         print("\n[3/6] 🎲 Collecting sample data...")
         for table_name, table_info in table_details.items():
             samples = self._get_samples(table_name, limit=3)
             table_info.sample_rows = samples
             print(f"   → {table_name}: {len(samples)} sample rows")
         
-        # Step 4: Calculate column statistics
+        # STEP 4: Calculate Column Statistics -> Min, Max, Avg, Distinct Count, nUll count
         print("\n[4/6] 📈 Calculating column statistics...")
         for table_name, table_info in table_details.items():
             stats = self._calculate_stats(table_name, table_info)
             table_info.column_stats = stats
             print(f"   → {table_name}: Statistics for {len(stats)} columns")
         
-        # Step 5: Find join paths (if multiple tables)
+        # STEP 5: Find Join Paths (if multiple tables) via Finding Join Paths
         print("\n[5/6] 🔗 Finding join paths...")
         required_joins = []
         if len(selected_tables) > 1:
@@ -238,12 +238,12 @@ class SchemaScout:
         else:
             print("   → Single table query, no joins needed")
         
-        # Step 6: Recommend columns
+        # STEP 6: Recommend Columns -> Iterate through original question find keywords
         print("\n[6/6] 💡 Recommending columns...")
         recommended_columns = self._recommend_columns(question_analysis, table_details)
         print(f"   → Recommended {len(recommended_columns)} columns: {', '.join(recommended_columns)}")
         
-        # Step 7: Validate filters
+        # STEP 7: Validate Filters (if Filters exist) -> Check if columns exist in schema
         print("\n[7/7] ✅ Validating filters...")
         validated_filters = self._validate_filters(question_analysis.filters, table_details)
         print(f"   → Validated {len(validated_filters)} filters")
