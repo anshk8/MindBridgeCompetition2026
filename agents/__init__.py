@@ -6,5 +6,10 @@ This package contains specialized agents for different phases of SQL generation.
 
 from .questionDecomposerAgent import QuestionDecomposer, QuestionAnalysis
 from .schemaExpert import SchemaScout, SchemaContext
+from .SQLAgent import SQLArchitect, SQLQuery
 
-__all__ = ['QuestionDecomposer', 'QuestionAnalysis', 'SchemaScout', 'SchemaContext']
+__all__ = [
+    'QuestionDecomposer', 'QuestionAnalysis',
+    'SchemaScout', 'SchemaContext',
+    'SQLArchitect', 'SQLQuery'
+]

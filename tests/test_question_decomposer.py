@@ -9,7 +9,7 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from agent.questionDecomposerAgent import QuestionDecomposer, QuestionAnalysis
+from agents.questionDecomposerAgent import QuestionDecomposer, QuestionAnalysis
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 import json
