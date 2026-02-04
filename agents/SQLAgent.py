@@ -707,8 +707,8 @@ FROM {primary_table}
                 column_info += f"  - {col.name} ({col.type})"
                 if col.is_primary_key:
                     column_info += " [PRIMARY KEY]"
-                if col.is_foreign_key and col.foreign_key_ref:
-                    column_info += f" [FK → {col.foreign_key_ref['table']}]"
+                if col.is_foreign_key:
+                    column_info += " [FOREIGN KEY]"
                 column_info += "\n"
         
         # Get join info

@@ -24,6 +24,8 @@ from agents.SQLAgent import SQLArchitect, SQLQuery
 # ==================== TEST QUERIES ====================
 
 TEST_QUERIES = {
+
+    #E5 Output is correct but it doesn't output List_price and it gives iD, 
     "easy": [
         {
             "id": "E1",
@@ -57,6 +59,12 @@ TEST_QUERIES = {
         }
     ],
     
+    # M3 Error: it outputs  SELECT COUNT(*) FROM products
+    # M5 Outputs: This is a self join I gotta try this too
+    # SELECT customers.customer_id, customers.first_name, customers.last_name, orders.order_id
+    #   FROM customers
+    #   INNER JOIN customers ON orders.customer_id = customers.customer_id
+
     "medium": [
         {
             "id": "M1",
@@ -90,6 +98,51 @@ TEST_QUERIES = {
         }
     ],
     
+    # H1 WRONG: SELECT store_id, store_name FROM stores ORDER BY inventory DESC LIMIT 1;
+
+    # H2 WRONG: It ouputs  
+    # SELECT 
+    #      p.brand_id, 
+    #      SUM(o.order_status) AS total_revenue
+    #  FROM 
+    #      orders o
+    #  JOIN 
+    #      products p ON o.product_id = p.product_id
+    #  GROUP BY 
+    #      p.brand_id;
+
+    # H3 WRONG: You cannot use NOT IN with a direct column reference. Syntax error 
+    #  SELECT customer_id, first_name, last_name
+    #   FROM customers
+    #   WHERE customers.customer_id not in orders.customer_id
+
+
+
+    # H4 WRONG: Lmao what is this syntax?
+    #   SELECT 
+    #       products.product_id, 
+    #       products.product_name, 
+    #       stores.store_id
+    #   FROM 
+    #       products, 
+    #       stores;
+
+    # H5 WRONG: sums order id
+    # SELECT 
+    #       c.customer_id, 
+    #       c.first_name, 
+    #       c.last_name, 
+    #       SUM(o.order_id) AS total_purchase_amount
+    #   FROM 
+    #       customers c
+    #   INNER JOIN 
+    #       orders o ON c.customer_id = o.customer_id
+    #   GROUP BY 
+    #       c.customer_id, c.first_name, c.last_name
+    #   ORDER BY 
+    #       total_purchase_amount DESC
+    #   LIMIT 10;
+
     "hard": [
         {
             "id": "H1",
