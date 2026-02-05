@@ -25,6 +25,7 @@ from agents.SQLAgent import SQLArchitect, SQLQuery
 
 TEST_QUERIES = {
 
+    #E3 Fail, it selects product not categories
     #E5 Output is correct but it doesn't output List_price and it gives iD, 
     "easy": [
         {
