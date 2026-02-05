@@ -17,7 +17,7 @@ The output provides a complete SQL query ready for execution.
 import os
 import json
 import re
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 
 

@@ -265,7 +265,6 @@ class SchemaScout:
         """
         Get basic table info: columns + sample rows.
         
-        NO stats, NO complex FK detection. Just the basics.
         """
         try:
             # Get columns

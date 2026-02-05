@@ -212,119 +212,19 @@ class AgentPipelineTester:
         }
         
         try:
-            # ==================== AGENT #1: QUESTION DECOMPOSER ====================
-            print(f"\n{'='*80}")
-            print(f"📝 AGENT #1: QUESTION DECOMPOSER")
-            print(f"{'='*80}")
-            print(f"INPUT: {question}")
-            
+            # Run agents silently
             agent1_output = self.agent1.decompose(question)
-            
-            result['stages']['agent1'] = {
-                'input': question,
-                'output': {
-                    'query_type': agent1_output.query_type,
-                    'entities': agent1_output.entities,
-                    'filters': agent1_output.filters,
-                    'aggregations': agent1_output.aggregations,
-                    'ordering': agent1_output.ordering,
-                    'limit': agent1_output.limit,
-                    'confidence': agent1_output.confidence
-                },
-                'status': 'success'
-            }
-            
-            print(f"\nOUTPUT:")
-            print(f"  ├─ Query Type: {agent1_output.query_type}")
-            print(f"  ├─ Entities: {agent1_output.entities}")
-            print(f"  ├─ Filters: {agent1_output.filters}")
-            print(f"  ├─ Aggregations: {agent1_output.aggregations}")
-            print(f"  ├─ Ordering: {agent1_output.ordering}")
-            print(f"  ├─ Limit: {agent1_output.limit}")
-            print(f"  └─ Confidence: {agent1_output.confidence:.2f}")
-            
-            # ==================== AGENT #2: SCHEMA SCOUT ====================
-            print(f"\n{'='*80}")
-            print(f"🔭 AGENT #2: SCHEMA SCOUT")
-            print(f"{'='*80}")
-            print(f"INPUT: QuestionAnalysis from Agent #1")
-            
             agent2_output = self.agent2.scout(agent1_output)
-            
-            result['stages']['agent2'] = {
-                'input': 'QuestionAnalysis object',
-                'output': {
-                    'selected_tables': agent2_output.selected_tables,
-                    'recommended_columns': agent2_output.recommended_columns,
-                    'required_joins': [
-                        {
-                            'from': j.from_table,
-                            'to': j.to_table,
-                            'on': f"{j.from_column} = {j.to_column}"
-                        } for j in agent2_output.required_joins
-                    ],
-                    'validated_filters': [
-                        {
-                            'table': f.table,
-                            'column': f.column,
-                            'operator': f.operator,
-                            'value': f.value,
-                            'is_valid': f.is_valid
-                        } for f in agent2_output.validated_filters
-                    ],
-                    'confidence': agent2_output.confidence,
-                    'warnings': agent2_output.warnings
-                },
-                'status': 'success'
-            }
-            
-            print(f"\nOUTPUT:")
-            print(f"  ├─ Selected Tables: {agent2_output.selected_tables}")
-            print(f"  ├─ Recommended Columns: {agent2_output.recommended_columns}")
-            print(f"  ├─ Required Joins: {len(agent2_output.required_joins)}")
-            for join in agent2_output.required_joins:
-                print(f"  │   └─ {join.from_table}.{join.from_column} -> {join.to_table}.{join.to_column}")
-            print(f"  ├─ Validated Filters: {len(agent2_output.validated_filters)}")
-            print(f"  ├─ Warnings: {agent2_output.warnings}")
-            print(f"  └─ Confidence: {agent2_output.confidence:.2f}")
-            
-            # ==================== AGENT #3: SQL ARCHITECT ====================
-            print(f"\n{'='*80}")
-            print(f"🏗️  AGENT #3: SQL ARCHITECT")
-            print(f"{'='*80}")
-            print(f"INPUT: QuestionAnalysis + SchemaContext")
-            
             agent3_output = self.agent3.generate(agent1_output, agent2_output)
-            
-            result['stages']['agent3'] = {
-                'input': 'QuestionAnalysis + SchemaContext',
-                'output': {
-                    'sql': agent3_output.sql,
-                    'strategy': agent3_output.strategy,
-                    'confidence': agent3_output.confidence,
-                    'reasoning': agent3_output.reasoning,
-                    'warnings': agent3_output.warnings
-                },
-                'status': 'success'
-            }
             
             result['generated_sql'] = agent3_output.sql
             result['final_confidence'] = agent3_output.confidence
-            
-            print(f"\nOUTPUT:")
-            print(f"  ├─ Strategy: {agent3_output.strategy}")
-            print(f"  ├─ Confidence: {agent3_output.confidence:.2f}")
-            print(f"  ├─ Reasoning: {agent3_output.reasoning}")
-            print(f"  ├─ Warnings: {agent3_output.warnings}")
-            print(f"  └─ Generated SQL:")
-            print(f"\n{self._format_sql(agent3_output.sql)}\n")
-            
             result['pipeline_success'] = True
             
         except Exception as e:
             result['pipeline_success'] = False
             result['errors'].append(str(e))
-            print(f"\n❌ ERROR: {e}")
+            result['generated_sql'] = 'ERROR'
         
         return result
     
@@ -350,33 +250,20 @@ class AgentPipelineTester:
         for difficulty in difficulties:
             queries = TEST_QUERIES.get(difficulty, [])
             
-            print(f"\n\n{'#'*80}")
-            print(f"{'#'*80}")
-            print(f"## DIFFICULTY: {difficulty.upper()}")
-            print(f"{'#'*80}")
-            print(f"{'#'*80}\n")
-            
             for test_query in queries:
-                print(f"\n{'='*80}")
-                print(f"TEST ID: {test_query['id']}")
-                print(f"QUESTION: {test_query['question']}")
-                print(f"EXPECTED: {test_query['expected_sql']}")
-                print(f"NOTES: {test_query['notes']}")
-                print(f"{'='*80}")
-                
                 result = self.run_test(test_query)
                 result['difficulty'] = difficulty
                 all_results.append(result)
                 
-                # Show summary
-                if result['pipeline_success']:
-                    print(f"\n✅ TEST {test_query['id']}: PIPELINE COMPLETED")
-                else:
-                    print(f"\n❌ TEST {test_query['id']}: PIPELINE FAILED")
-                    print(f"   Errors: {result['errors']}")
-                
-                print("\n" + "-"*80)
-                input("Press ENTER to continue to next test...")
+                # Print minimal result
+                print(f"\n{'='*80}")
+                print(f"Test ID: {test_query['id']}")
+                print(f"Question: {test_query['question']}")
+                print(f"Expected: {test_query['expected_sql']}")
+                print(f"Generated: {result['generated_sql']}")
+                if result['errors']:
+                    print(f"Errors: {result['errors']}")
+                print('='*80)
         
         # Generate summary report
         self._print_summary_report(all_results)
@@ -467,7 +354,6 @@ def main():
     print("="*80 + "\n")
     
     input("Press ENTER to start testing...")
-    
     tester = AgentPipelineTester()
     
     try:
@@ -479,6 +365,8 @@ def main():
     finally:
         tester.close()
 
+
+  
 
 if __name__ == "__main__":
     main()

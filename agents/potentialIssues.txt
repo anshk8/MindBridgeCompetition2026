@@ -8,6 +8,8 @@ Agent #1
 
 Agent #2
 - Schema Caching for Efficiency
+- Matching tables will match everything, order matches order_items within _map_entities_to_tables, fix!
+
 
 
 
