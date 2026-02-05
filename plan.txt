@@ -1,0 +1,55 @@
+┌─────────────────────────────────────────────────┐
+│  PHASE 1: UNDERSTANDING                         │
+│  Agent 1: Question Decomposer                   │
+│  - Breaks down complex questions                │
+│  - Identifies key entities and relationships    │
+│  - Detects ambiguity                            │
+└─────────────────────────────────────────────────┘
+                    ↓
+┌─────────────────────────────────────────────────┐
+│  PHASE 2: SCHEMA INTELLIGENCE (Uses MCP!)       │
+│  Agent 2: Schema Scout                          │
+│  - Calls MCP to search relevant tables          │
+│  - Gets sample data for context                 │
+│  - Builds minimal schema context                │
+└─────────────────────────────────────────────────┘
+                    ↓
+┌─────────────────────────────────────────────────┐
+│  PHASE 3: SQL GENERATION                        │
+│  Agent 3: SQL Architect                         │
+│  - Uses Chain-of-Thought reasoning              │
+│  - Generates 2-3 SQL candidates                 │
+│  - Explains reasoning for each                  │
+└─────────────────────────────────────────────────┘
+                    ↓
+┌─────────────────────────────────────────────────┐
+│  PHASE 4: VALIDATION                            │
+│  Agent 4: SQL Validator (Uses MCP!)             │
+│  - Executes SQL via MCP                         │
+│  - Checks for errors                            │
+│  - Validates result sanity                      │
+└─────────────────────────────────────────────────┘
+                    ↓
+           ┌────────┴────────┐
+           │   Success?      │
+           └────────┬────────┘
+               Yes ↓    ↓ No
+                   │    │
+                   │    ↓
+                   │  ┌─────────────────────────────┐
+                   │  │ Agent 5: SQL Doctor         │
+                   │  │ - Diagnoses error           │
+                   │  │ - Repairs SQL               │
+                   │  │ - Returns to Validator      │
+                   │  └─────────────────────────────┘
+                   ↓
+              Final SQL
+
+Let us follow this Plan. WE WILL ONLY BUILD STUFF ONE AT A TIME, PREFERABLY ONE FILE. Lets start with our first question decomposer. Always remmeber when building agents the evaluation criteria: valuation Criteria
+Your submission will be evaluated on:
+
+Accuracy: Does the generated SQL correctly answer the user's question?
+Robustness: Can your agent handle various types of questions (aggregations, joins, filters, etc.)?
+Error Handling: Does your agent gracefully handle invalid or ambiguous questions?
+Code Quality: Is your code well-organized, documented, and maintainable?
+Innovation: Creative approaches and novel solutions are encouraged!

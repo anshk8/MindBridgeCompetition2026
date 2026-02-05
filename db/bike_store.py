@@ -106,7 +106,7 @@ def get_schema_info(db_path='bike_store.db'):
         ]
 
     con.close()
-    return schema_info
+    return schema_info    
 
 
 if __name__ == "__main__":
