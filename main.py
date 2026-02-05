@@ -16,7 +16,7 @@ LLM Configuration:
 import os
 import duckdb
 from db.bike_store import BikeStoreDb
-from agents import QueryWriter
+from agent import QueryWriter
 
 
 def initialize_database(db_path: str = 'bike_store.db'):

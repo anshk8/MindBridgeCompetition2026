@@ -518,6 +518,10 @@ FROM {primary_table}
         """
         Build JOIN clauses from schema context.
         
+        This method validates table and column identifiers to avoid
+        accidentally constructing unsafe SQL if the schema context is
+        compromised or malformed.
+        
         Example:
             INNER JOIN brands ON products.brand_id = brands.brand_id
         """
@@ -525,10 +529,52 @@ FROM {primary_table}
         if not schema_context.required_joins:
             return ""
         
+        # Allowed join types (normalized to upper case)
+        allowed_join_types = {
+            "INNER",
+            "LEFT",
+            "LEFT OUTER",
+            "RIGHT",
+            "RIGHT OUTER",
+            "FULL",
+            "FULL OUTER",
+            "CROSS",
+        }
+        
+        def _is_valid_identifier(name: str) -> bool:
+            """
+            Validate that a table/column name is a simple SQL identifier:
+            starts with a letter or underscore, followed by letters,
+            digits, or underscores.
+            """
+            return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name or ""))
+        
         joins = []
         
         for join_info in schema_context.required_joins:
-            join_clause = f"{join_info.join_type} JOIN {join_info.to_table} ON {join_info.from_table}.{join_info.from_column} = {join_info.to_table}.{join_info.to_column}"
+            join_type_normalized = (join_info.join_type or "").upper().strip()
+            
+            if join_type_normalized not in allowed_join_types:
+                raise ValueError(f"Invalid join type in schema context: {join_info.join_type!r}")
+            
+            from_table = join_info.from_table
+            to_table = join_info.to_table
+            from_column = join_info.from_column
+            to_column = join_info.to_column
+            
+            if not _is_valid_identifier(from_table):
+                raise ValueError(f"Invalid table name in schema context: {from_table!r}")
+            if not _is_valid_identifier(to_table):
+                raise ValueError(f"Invalid table name in schema context: {to_table!r}")
+            if not _is_valid_identifier(from_column):
+                raise ValueError(f"Invalid column name in schema context: {from_column!r}")
+            if not _is_valid_identifier(to_column):
+                raise ValueError(f"Invalid column name in schema context: {to_column!r}")
+            
+            join_clause = (
+                f"{join_type_normalized} JOIN {to_table} "
+                f"ON {from_table}.{from_column} = {to_table}.{to_column}"
+            )
             joins.append(join_clause)
         
         return "\n".join(joins)

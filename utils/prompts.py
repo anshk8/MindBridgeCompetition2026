@@ -39,7 +39,7 @@ The bike store database has these entities (USE EXACT TABLE NAMES):
 CRITICAL RULES:
 1. "entities" MUST be a list of strings containing ONLY actual table names from above (e.g., ["products", "customers"])
 2. DO NOT put column names, values, or filter terms in entities - ONLY table names
-3. If question mentions "bikes" or "prodcts" (typo), map to "products" table
+3. If question mentions "bikes" or "products" (typo), map to "products" table
 4. If question mentions "revenue" or "order_value", use "order_items" table
 5. If question mentions "brand" (singular), use "brands" table
 6. Detect ambiguity: mark as ambiguous if question is too vague or missing critical context
@@ -111,7 +111,7 @@ Given:
 - Any errors encountered
 
 Evaluate:
-1. Does the SQL syntax valid?
+1. Is the SQL syntax valid?
 2. Does it logically answer the question?
 3. Are the results reasonable?
 4. Are there any potential issues?

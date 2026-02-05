@@ -9,8 +9,7 @@ This server acts as a database expert, providing tools for:
 """
 
 import duckdb
-import json
-from typing import Dict, List, Any, Optional
+from typing import List, Any, Optional
 from dataclasses import dataclass
 
 
@@ -72,6 +71,31 @@ class DatabaseMCPServer:
             return self.conn.execute(query).fetchall()
         except Exception as e:
             raise Exception(f"Query execution failed: {str(e)}")
+    
+    def _validate_limit(self, limit: Optional[int], max_limit: int = 10000) -> tuple[bool, Optional[str]]:
+        """
+        Validate limit parameter.
+        
+        Args:
+            limit: The limit value to validate
+            max_limit: Maximum allowed limit (default: 10000)
+            
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if limit is None:
+            return True, None
+        
+        if not isinstance(limit, int):
+            return False, f"Limit must be an integer, got {type(limit).__name__}"
+        
+        if limit <= 0:
+            return False, f"Limit must be positive, got {limit}"
+        
+        if limit > max_limit:
+            return False, f"Limit exceeds maximum allowed value of {max_limit}, got {limit}"
+        
+        return True, None
     
     # ==================== SCHEMA TOOLS ====================
     
@@ -155,6 +179,14 @@ class DatabaseMCPServer:
         Returns:
             MCPToolResult with sample data
         """
+        # Validate limit
+        is_valid, error_msg = self._validate_limit(limit, max_limit=1000)
+        if not is_valid:
+            return MCPToolResult(success=False, data=None, error=error_msg)
+        
+        # Ensure limit is integer (defensive programming)
+        limit = int(limit)
+        
         try:
             # Get column names
             columns = self._execute_query(f"DESCRIBE {table_name}")
@@ -191,9 +223,16 @@ class DatabaseMCPServer:
         Returns:
             MCPToolResult with query results
         """
+        # Validate limit
+        is_valid, error_msg = self._validate_limit(limit)
+        if not is_valid:
+            return MCPToolResult(success=False, data=None, error=error_msg)
+        
         try:
             # Add limit if specified and not already in query
             if limit and 'LIMIT' not in query.upper():
+                # Ensure limit is integer (defensive programming against SQL injection)
+                limit = int(limit)
                 query = f"{query.rstrip(';')} LIMIT {limit}"
             
             result = self._execute_query(query)
@@ -202,7 +241,7 @@ class DatabaseMCPServer:
             try:
                 cols = self.conn.execute(f"DESCRIBE ({query})").fetchall()
                 column_names = [col[0] for col in cols]
-            except:
+            except Exception:
                 column_names = [f"col_{i}" for i in range(len(result[0]) if result else 0)]
             
             # Convert to list of dicts
@@ -310,6 +349,14 @@ class DatabaseMCPServer:
         Returns:
             MCPToolResult with column values
         """
+        # Validate limit
+        is_valid, error_msg = self._validate_limit(limit, max_limit=1000)
+        if not is_valid:
+            return MCPToolResult(success=False, data=None, error=error_msg)
+        
+        # Ensure limit is integer (defensive programming)
+        limit = int(limit)
+        
         try:
             distinct_clause = "DISTINCT" if distinct else ""
             query = f"SELECT {distinct_clause} {column_name} FROM {table_name} LIMIT {limit}"
