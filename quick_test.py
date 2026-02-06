@@ -14,10 +14,8 @@ from agents.SQLAgent import SQLArchitect
 # ==================== PASTE YOUR QUESTIONS HERE ====================
 
 QUESTIONS = [
-    "Show me all brands",
-    "How many customers are there?",
     "List all product categories",
-    # Add more questions here...
+    
 ]
 
 # ===================================================================

@@ -1,204 +1,168 @@
 """
-Agent Pipeline Testing Suite
+SQL Agent Testing Suite
 
-This script tests the complete three-agent pipeline:
-- Agent #1: Question Decomposer (Natural Language Understanding)
-- Agent #2: Schema Scout (Database Intelligence)
-- Agent #3: SQL Architect (Query Generation)
-
-Shows input/output at each stage to identify where errors occur.
+This script tests the single SQLAgent that uses Chain-of-Thought reasoning
+and Dynamic Few-Shot Learning to generate SQL queries.
 """
 
-import os
 import json
-import sys
+import duckdb
 from typing import Dict, Any
 from datetime import datetime
 
-# Import all three agents
-from agents.questionDecomposerAgent import QuestionDecomposer, QuestionAnalysis
-from agents.schemaExpert import SchemaScout, SchemaContext
-from agents.SQLAgent import SQLArchitect, SQLQuery
+# Import the SQL Agent
+from agents.SQLAgent import SQLAgent
 
-
-# ==================== TEST QUERIES ====================
+# ==================== NEW TEST QUERIES (NOT IN FEW-SHOT EXAMPLES) ====================
 
 TEST_QUERIES = {
-
-    #E3 Fail, it selects product not categories
-    #E5 Output is correct but it doesn't output List_price and it gives iD, 
     "easy": [
         {
             "id": "E1",
-            "question": "Show me all brands",
-            "expected_sql": "SELECT * FROM brands",
-            "notes": "Simple SELECT, single table, no conditions"
+            "question": "List all stores in California",
+            "expected_sql": "SELECT store_name, city, state FROM stores WHERE state = 'CA'",
+            "notes": "Simple WHERE filter on state column"
         },
         {
             "id": "E2",
-            "question": "How many customers are there?",
-            "expected_sql": "SELECT COUNT(*) FROM customers",
-            "notes": "Simple COUNT aggregation"
+            "question": "What is the cheapest product in the database?",
+            "expected_sql": "SELECT product_name, list_price FROM products ORDER BY list_price ASC LIMIT 1",
+            "notes": "MIN via ORDER BY ASC + LIMIT"
         },
         {
             "id": "E3",
-            "question": "List all product categories",
-            "expected_sql": "SELECT category_name FROM categories",
-            "notes": "Simple SELECT with specific column"
+            "question": "How many products were made in 2018?",
+            "expected_sql": "SELECT COUNT(*) FROM products WHERE model_year = 2018",
+            "notes": "COUNT with WHERE on year column"
         },
         {
             "id": "E4",
-            "question": "What stores do we have?",
-            "expected_sql": "SELECT store_name, city, state FROM stores",
-            "notes": "Simple SELECT, multiple columns"
+            "question": "Show all staff emails",
+            "expected_sql": "SELECT first_name, last_name, email FROM staffs",
+            "notes": "Simple SELECT specific columns"
         },
         {
             "id": "E5",
-            "question": "Show me products with price greater than 500",
-            "expected_sql": "SELECT product_name, list_price FROM products WHERE list_price > 500",
-            "notes": "Simple filtering with WHERE clause"
+            "question": "What is the total quantity of all products in stock?",
+            "expected_sql": "SELECT SUM(quantity) FROM stocks",
+            "notes": "Simple SUM aggregation"
         }
     ],
     
-    # M3 Error: it outputs  SELECT COUNT(*) FROM products
-    # M5 Outputs: This is a self join I gotta try this too
-    # SELECT customers.customer_id, customers.first_name, customers.last_name, orders.order_id
-    #   FROM customers
-    #   INNER JOIN customers ON orders.customer_id = customers.customer_id
-
     "medium": [
         {
             "id": "M1",
-            "question": "What are the top 5 most expensive products?",
-            "expected_sql": "SELECT product_name, list_price FROM products ORDER BY list_price DESC LIMIT 5",
-            "notes": "ORDER BY + LIMIT"
+            "question": "Show all orders placed in January 2017",
+            "expected_sql": "SELECT order_id, customer_id, order_date FROM orders WHERE order_date BETWEEN '2017-01-01' AND '2017-01-31'",
+            "notes": "Date range filtering with BETWEEN"
         },
         {
             "id": "M2",
-            "question": "Find customers in New York",
-            "expected_sql": "SELECT first_name, last_name, city, state FROM customers WHERE state = 'NY'",
-            "notes": "Filtering with string comparison"
+            "question": "Which brands have more than 10 products?",
+            "expected_sql": "SELECT b.brand_name, COUNT(p.product_id) as product_count FROM brands b JOIN products p ON b.brand_id = p.brand_id GROUP BY b.brand_name HAVING COUNT(p.product_id) > 10",
+            "notes": "JOIN with GROUP BY and HAVING clause"
         },
         {
             "id": "M3",
-            "question": "How many products are in each category?",
-            "expected_sql": "SELECT c.category_name, COUNT(p.product_id) FROM categories c LEFT JOIN products p ON c.category_id = p.category_id GROUP BY c.category_name",
-            "notes": "GROUP BY with JOIN"
+            "question": "List all staff members and their store names",
+            "expected_sql": "SELECT s.first_name, s.last_name, st.store_name FROM staffs s JOIN stores st ON s.store_id = st.store_id",
+            "notes": "Two-table JOIN with different alias pattern"
         },
         {
             "id": "M4",
-            "question": "What is the average product price?",
-            "expected_sql": "SELECT AVG(list_price) FROM products",
-            "notes": "Aggregation function (AVG)"
+            "question": "Find products priced between 1000 and 2000 dollars",
+            "expected_sql": "SELECT product_name, brand_id, list_price FROM products WHERE list_price BETWEEN 1000 AND 2000",
+            "notes": "BETWEEN operator for range"
         },
         {
             "id": "M5",
-            "question": "Show me customer names with their order details",
-            "expected_sql": "SELECT c.first_name, c.last_name, o.order_id, o.order_date FROM customers c JOIN orders o ON c.customer_id = o.customer_id",
-            "notes": "Multi-table JOIN"
+            "question": "How many orders has each customer placed?",
+            "expected_sql": "SELECT c.first_name, c.last_name, COUNT(o.order_id) as order_count FROM customers c LEFT JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id, c.first_name, c.last_name",
+            "notes": "LEFT JOIN with GROUP BY (preserves customers with 0 orders)"
         }
     ],
     
-    # H1 WRONG: SELECT store_id, store_name FROM stores ORDER BY inventory DESC LIMIT 1;
-
-    # H2 WRONG: It ouputs  
-    # SELECT 
-    #      p.brand_id, 
-    #      SUM(o.order_status) AS total_revenue
-    #  FROM 
-    #      orders o
-    #  JOIN 
-    #      products p ON o.product_id = p.product_id
-    #  GROUP BY 
-    #      p.brand_id;
-
-    # H3 WRONG: You cannot use NOT IN with a direct column reference. Syntax error 
-    #  SELECT customer_id, first_name, last_name
-    #   FROM customers
-    #   WHERE customers.customer_id not in orders.customer_id
-
-
-
-    # H4 WRONG: Lmao what is this syntax?
-    #   SELECT 
-    #       products.product_id, 
-    #       products.product_name, 
-    #       stores.store_id
-    #   FROM 
-    #       products, 
-    #       stores;
-
-    # H5 WRONG: sums order id
-    # SELECT 
-    #       c.customer_id, 
-    #       c.first_name, 
-    #       c.last_name, 
-    #       SUM(o.order_id) AS total_purchase_amount
-    #   FROM 
-    #       customers c
-    #   INNER JOIN 
-    #       orders o ON c.customer_id = o.customer_id
-    #   GROUP BY 
-    #       c.customer_id, c.first_name, c.last_name
-    #   ORDER BY 
-    #       total_purchase_amount DESC
-    #   LIMIT 10;
-
     "hard": [
         {
             "id": "H1",
-            "question": "Which store has the most inventory?",
-            "expected_sql": "SELECT s.store_name, SUM(st.quantity) as total_inventory FROM stores s JOIN stocks st ON s.store_id = st.store_id GROUP BY s.store_id, s.store_name ORDER BY total_inventory DESC LIMIT 1",
-            "notes": "JOIN + GROUP BY + ORDER BY + LIMIT"
+            "question": "What is the average order value for each customer?",
+            "expected_sql": "SELECT c.first_name, c.last_name, AVG(oi.quantity * oi.list_price * (1 - oi.discount)) as avg_order_value FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name",
+            "notes": "3-table JOIN with calculated AVG on expression"
         },
         {
             "id": "H2",
-            "question": "What is the total revenue by brand?",
-            "expected_sql": "SELECT b.brand_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) as total_revenue FROM brands b JOIN products p ON b.brand_id = p.brand_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY b.brand_name ORDER BY total_revenue DESC",
-            "notes": "Multi-table JOIN + complex aggregation"
+            "question": "Which products have never been ordered?",
+            "expected_sql": "SELECT product_name, product_id FROM products WHERE product_id NOT IN (SELECT DISTINCT product_id FROM order_items)",
+            "notes": "NOT IN subquery for exclusion"
         },
         {
             "id": "H3",
-            "question": "Find customers who have never placed an order",
-            "expected_sql": "SELECT first_name, last_name, email FROM customers WHERE customer_id NOT IN (SELECT DISTINCT customer_id FROM orders)",
-            "notes": "Subquery with NOT IN"
+            "question": "Show the top 3 customers by total purchase amount",
+            "expected_sql": "SELECT c.first_name, c.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) as total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name ORDER BY total_spent DESC LIMIT 3",
+            "notes": "Multi-table JOIN with complex calculation, GROUP BY, ORDER BY, LIMIT"
         },
         {
             "id": "H4",
-            "question": "List all products and their available stock quantities by store",
-            "expected_sql": "SELECT p.product_name, s.store_name, st.quantity FROM products p JOIN stocks st ON p.product_id = st.product_id JOIN stores s ON st.store_id = s.store_id",
-            "notes": "Three-table JOIN"
+            "question": "For each store, show the most expensive product in stock",
+            "expected_sql": "SELECT s.store_name, p.product_name, p.list_price FROM stores s JOIN stocks st ON s.store_id = st.store_id JOIN products p ON st.product_id = p.product_id WHERE (s.store_id, p.list_price) IN (SELECT st2.store_id, MAX(p2.list_price) FROM stocks st2 JOIN products p2 ON st2.product_id = p2.product_id GROUP BY st2.store_id)",
+            "notes": "Correlated subquery with MAX aggregation per group"
         },
         {
             "id": "H5",
-            "question": "Show the top 10 customers by total purchase amount",
-            "expected_sql": "SELECT c.first_name, c.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) as total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name ORDER BY total_spent DESC LIMIT 10",
-            "notes": "Complex multi-table JOIN + aggregation + LIMIT"
+            "question": "What percentage of total revenue does each category contribute?",
+            "expected_sql": "SELECT c.category_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) as category_revenue, (SUM(oi.quantity * oi.list_price * (1 - oi.discount)) * 100.0 / (SELECT SUM(quantity * list_price * (1 - discount)) FROM order_items)) as revenue_percentage FROM categories c JOIN products p ON c.category_id = p.category_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY c.category_name ORDER BY revenue_percentage DESC",
+            "notes": "Multi-table JOIN with subquery for percentage calculation"
         }
     ]
 }
 
+# ==================== AGENT TESTER ====================
 
-# ==================== AGENT PIPELINE RUNNER ====================
-
-class AgentPipelineTester:
+class SQLAgentTester:
     """
-    Runs queries through the complete agent pipeline and tracks results.
+    Tests the single SQLAgent with various queries.
     """
     
     def __init__(self, db_path: str = 'bike_store.db'):
-        """Initialize all three agents"""
-        print("🚀 Initializing agents...")
-        self.agent1 = QuestionDecomposer()
-        self.agent2 = SchemaScout(db_path=db_path)
-        self.agent3 = SQLArchitect()
-        print("✅ All agents initialized\n")
+        """Initialize the SQL Agent"""
+        print("🚀 Initializing SQL Agent...")
+        self.agent = SQLAgent(dbPath=db_path)
+        self.db_path = db_path
+        # Use the agent's connection instead of creating a new one
+        self.conn = self.agent.duckdbConn
+    
+    def validate_sql_execution(self, sql: str) -> Dict[str, Any]:
+        """
+        Validate SQL by executing it and checking results.
+        
+        Returns execution status and row count.
+        """
+        validation = {
+            'executes': False,
+            'row_count': 0,
+            'error': None,
+            'sample_result': None
+        }
+        
+        try:
+            result = self.conn.execute(sql).fetchall()
+            validation['executes'] = True
+            validation['row_count'] = len(result)
+            
+            # Get sample result (first row)
+            if result:
+                validation['sample_result'] = str(result[0])[:100]
+            
+        except Exception as e:
+            validation['error'] = str(e)
+        
+        return validation
     
     def run_test(self, test_query: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Run a single query through the complete pipeline.
+        Run a single query through the SQL Agent.
         
-        Returns detailed results at each stage.
+        Returns detailed results.
         """
         question = test_query['question']
         
@@ -206,25 +170,29 @@ class AgentPipelineTester:
             'test_id': test_query['id'],
             'question': question,
             'expected_sql': test_query.get('expected_sql', 'N/A'),
-            'notes': test_query.get('notes', ''),
-            'stages': {},
-            'errors': []
+            'generated_sql': None,
+            'success': False,
+            'error': None,
+            'validation': None
         }
         
         try:
-            # Run agents silently
-            agent1_output = self.agent1.decompose(question)
-            agent2_output = self.agent2.scout(agent1_output)
-            agent3_output = self.agent3.generate(agent1_output, agent2_output)
+            # Generate SQL using the agent
+            generated_sql = self.agent.generate(question)
+            result['generated_sql'] = generated_sql
             
-            result['generated_sql'] = agent3_output.sql
-            result['final_confidence'] = agent3_output.confidence
-            result['pipeline_success'] = True
+            # Validate the generated SQL
+            validation = self.validate_sql_execution(generated_sql)
+            result['validation'] = validation
+            result['success'] = validation['executes']
+            
+            if not validation['executes']:
+                result['error'] = validation['error']
             
         except Exception as e:
-            result['pipeline_success'] = False
-            result['errors'].append(str(e))
-            result['generated_sql'] = 'ERROR'
+            result['generated_sql'] = 'ERROR DURING GENERATION'
+            result['error'] = str(e)
+            result['success'] = False
         
         return result
     
@@ -241,42 +209,51 @@ class AgentPipelineTester:
         all_results = []
         
         print("\n" + "="*80)
-        print("🧪 AGENT PIPELINE TEST SUITE")
+        print("🧪 SQL AGENT COMPREHENSIVE TEST SUITE")
         print("="*80)
         print(f"Testing {sum(len(TEST_QUERIES[d]) for d in difficulties)} queries")
         print(f"Difficulties: {', '.join(difficulties)}")
         print("="*80)
+        print("\n⚠️  NOTE: These are NEW queries not in the few-shot examples")
+        print("    This will test true generalization capability!\n")
+        print("="*80)
         
         for difficulty in difficulties:
             queries = TEST_QUERIES.get(difficulty, [])
+            
+            print(f"\n\n{'🟢 EASY' if difficulty == 'easy' else '🟡 MEDIUM' if difficulty == 'medium' else '🔴 HARD'} QUERIES")
+            print("="*80)
             
             for test_query in queries:
                 result = self.run_test(test_query)
                 result['difficulty'] = difficulty
                 all_results.append(result)
                 
-                # Print minimal result
-                print(f"\n{'='*80}")
-                print(f"Test ID: {test_query['id']}")
-                print(f"Question: {test_query['question']}")
-                print(f"Expected: {test_query['expected_sql']}")
-                print(f"Generated: {result['generated_sql']}")
-                if result['errors']:
-                    print(f"Errors: {result['errors']}")
-                print('='*80)
+                # Print result
+                print(f"\n[{test_query['id']}] {test_query['question']}")
+                print(f"Notes: {test_query['notes']}")
+                print(f"\nExpected SQL:")
+                print(f"  {test_query['expected_sql'][:200]}...")
+                print(f"\nGenerated SQL:")
+                print(f"  {result['generated_sql'][:200] if result['generated_sql'] else 'N/A'}...")
+                
+                if result['success']:
+                    validation = result['validation']
+                    print(f"\n✅ Status: SUCCESS")
+                    print(f"   Returned {validation['row_count']} rows")
+                    if validation['sample_result']:
+                        print(f"   Sample: {validation['sample_result']}")
+                else:
+                    print(f"\n❌ Status: FAILED")
+                    if result['error']:
+                        print(f"   Error: {result['error'][:150]}")
+                
+                print('-'*80)
         
         # Generate summary report
         self._print_summary_report(all_results)
         
         return all_results
-    
-    def _format_sql(self, sql: str) -> str:
-        """Format SQL for better readability"""
-        lines = sql.strip().split('\n')
-        formatted = []
-        for line in lines:
-            formatted.append(f"      {line}")
-        return '\n'.join(formatted)
     
     def _print_summary_report(self, results: list):
         """Print summary report of all tests"""
@@ -285,7 +262,7 @@ class AgentPipelineTester:
         print("="*80)
         
         total_tests = len(results)
-        successful = sum(1 for r in results if r['pipeline_success'])
+        successful = sum(1 for r in results if r['success'])
         failed = total_tests - successful
         
         print(f"\nTotal Tests: {total_tests}")
@@ -297,30 +274,34 @@ class AgentPipelineTester:
         for difficulty in ['easy', 'medium', 'hard']:
             diff_results = [r for r in results if r['difficulty'] == difficulty]
             if diff_results:
-                diff_success = sum(1 for r in diff_results if r['pipeline_success'])
-                print(f"  {difficulty.upper()}: {diff_success}/{len(diff_results)} successful")
+                diff_success = sum(1 for r in diff_results if r['success'])
+                diff_total = len(diff_results)
+                pct = (diff_success / diff_total * 100) if diff_total > 0 else 0
+                
+                emoji = '🟢' if difficulty == 'easy' else '🟡' if difficulty == 'medium' else '🔴'
+                print(f"  {emoji} {difficulty.upper()}: {diff_success}/{diff_total} successful ({pct:.1f}%)")
         
-        # Agent-level confidence
-        print("\n\nAverage Confidence by Stage:")
-        if successful > 0:
-            avg_agent1 = sum(r['stages']['agent1']['output']['confidence'] 
-                           for r in results if 'agent1' in r['stages']) / total_tests
-            avg_agent2 = sum(r['stages']['agent2']['output']['confidence'] 
-                           for r in results if 'agent2' in r['stages']) / total_tests
-            avg_agent3 = sum(r['final_confidence'] 
-                           for r in results if 'final_confidence' in r) / total_tests
-            
-            print(f"  Agent #1 (Question Decomposer): {avg_agent1:.2f}")
-            print(f"  Agent #2 (Schema Scout): {avg_agent2:.2f}")
-            print(f"  Agent #3 (SQL Architect): {avg_agent3:.2f}")
+        # Expected benchmarks
+        print("\n\n🎯 Target Benchmarks (based on research):")
+        print("  Easy: 90-100% | Medium: 70-85% | Hard: 50-70%")
         
-        # Failed tests
+        # Failed tests detail
         if failed > 0:
             print("\n\n❌ Failed Tests:")
             for result in results:
-                if not result['pipeline_success']:
-                    print(f"  {result['test_id']}: {result['question']}")
-                    print(f"    Errors: {result['errors']}")
+                if not result['success']:
+                    print(f"\n  [{result['test_id']}] {result['question']}")
+                    print(f"    Difficulty: {result['difficulty'].upper()}")
+                    if result['error']:
+                        print(f"    Error: {result['error'][:120]}")
+        
+        # Success stories (show a few successful hard queries)
+        successful_hard = [r for r in results if r['success'] and r['difficulty'] == 'hard']
+        if successful_hard:
+            print("\n\n✅ Successfully Solved Hard Queries:")
+            for result in successful_hard[:3]:  # Show first 3
+                print(f"  [{result['test_id']}] {result['question']}")
+                print(f"    Rows returned: {result['validation']['row_count']}")
         
         print("\n" + "="*80)
         
@@ -336,37 +317,47 @@ class AgentPipelineTester:
     
     def close(self):
         """Clean up resources"""
-        self.agent2.close()
-
+        if hasattr(self.agent, 'close'):
+            self.agent.close()
+        # Don't close conn since it's the agent's connection
 
 # ==================== MAIN ====================
 
 def main():
     """Run the test suite"""
     print("\n" + "="*80)
-    print("🧪 AGENT PIPELINE TESTING")
+    print("🧪 SQL AGENT COMPREHENSIVE TESTING")
     print("="*80)
-    print("\nThis will test all three agents with 15 queries:")
-    print("  - 5 Easy queries")
-    print("  - 5 Medium queries")
-    print("  - 5 Hard queries")
-    print("\nYou'll see the input/output at each stage to debug issues.")
+    print("\nThis will test the SQL Agent with 15 NEW queries:")
+    print("  🟢 5 Easy queries (90-100% target)")
+    print("  🟡 5 Medium queries (70-85% target)")  
+    print("  🔴 5 Hard queries (50-70% target)")
+    print("\n⚠️  IMPORTANT: These queries are NOT in the few-shot examples!")
+    print("   This tests true generalization, not memorization.")
+    print("\nYou'll see:")
+    print("  - Generated SQL for each query")
+    print("  - Execution validation")
+    print("  - Row counts and sample results")
+    print("  - Detailed error messages for failures")
     print("="*80 + "\n")
     
     input("Press ENTER to start testing...")
-    tester = AgentPipelineTester()
+    
+    tester = SQLAgentTester()
     
     try:
         # Run all tests
         results = tester.run_test_suite(difficulties=['easy', 'medium', 'hard'])
         
         print("\n✅ Testing complete!")
+        print("\n💡 Tips for improvement if accuracy is low:")
+        print("   1. Add more diverse few-shot examples")
+        print("   2. Try different Ollama models (llama3.3, deepseek-coder)")
+        print("   3. Increase validation attempts in _validateAndCorrect()")
+        print("   4. Add more specific examples for failing patterns")
         
     finally:
         tester.close()
-
-
-  
 
 if __name__ == "__main__":
     main()
