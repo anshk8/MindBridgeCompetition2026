@@ -1,15 +1,12 @@
 """
-Multi-Agent System for SQL Query Generation
+SQL Query Generation Agent
 
-This package contains specialized agents for different phases of SQL generation.
+This package contains the SQLAgent for generating SQL queries from natural language.
 """
 
-from .questionDecomposerAgent import QuestionDecomposer, QuestionAnalysis
-from .schemaExpert import SchemaScout, SchemaContext
-from .SQLAgent import SQLArchitect, SQLQuery
+
+from .SQLAgent import SQLAgent
 
 __all__ = [
-    'QuestionDecomposer', 'QuestionAnalysis',
-    'SchemaScout', 'SchemaContext',
-    'SQLArchitect', 'SQLQuery'
+    'SQLAgent'
 ]

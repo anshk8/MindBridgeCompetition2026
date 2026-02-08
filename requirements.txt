@@ -3,7 +3,8 @@
 
 # Database
 duckdb==1.1.3
-sqlalchemy==2.0.36
+duckdb-engine==0.13.2
+sqlalchemy==2.0.35
 
 # Data loading
 kagglehub==0.3.4
@@ -11,6 +12,7 @@ kagglehub==0.3.4
 # Ollama (required - for LLM access)
 ollama==0.4.7
 
-# Add your agent dependencies below (examples commented out)
-# langchain==0.3.7
-# langchain-ollama==0.2.3
+# Agent dependencies
+numpy==1.26.4
+sentence-transformers==3.3.1
+langchain-community==0.3.7
