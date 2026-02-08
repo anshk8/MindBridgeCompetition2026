@@ -1,12 +1,12 @@
 """
-Multi-Agent System for SQL Query Generation
+SQL Query Generation Agent
 
-This package contains specialized agents for different phases of SQL generation.
+This package contains the SQLAgent for generating SQL queries from natural language.
 """
 
 
 from .SQLAgent import SQLAgent
 
 __all__ = [
-    'SQLAgent', 'SQLAgent'
+    'SQLAgent'
 ]

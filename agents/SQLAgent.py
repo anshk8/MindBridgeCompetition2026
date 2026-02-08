@@ -71,17 +71,20 @@ class SQLAgent:
                     })
 
                 # Get sample data
-                samples = self.duckdbConn.execute(
+                cursor = self.duckdbConn.execute(
                     f"SELECT * FROM {tableName} LIMIT 3"
-                ).fetchdf().to_dict('records')
+                )
+                rows = cursor.fetchall()
+                col_names = [desc[0] for desc in cursor.description]
+                samples = [dict(zip(col_names, row)) for row in rows]
 
                 schemaWithSamples[tableName] = {
                     'columns': columnInfo,
                     'samples': samples
                 }
 
-            print("Schema with Samples from loadSchema: ",
-                  schemaWithSamples, "\n")
+            # print("Schema with Samples from loadSchema: ",
+            #       schemaWithSamples, "\n")
             return schemaWithSamples
 
         except Exception as e:
@@ -219,7 +222,7 @@ class SQLAgent:
                                  for col in colNames]
                     contextParts.append("  | " + " | ".join(rowValues) + " |")
 
-        print("\n".join(contextParts))
+        # print("\n".join(contextParts))
         return "\n".join(contextParts)
 
     def _buildFewShotContext(self, examples: List[FewShotExample]) -> str:

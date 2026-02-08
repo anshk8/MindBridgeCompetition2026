@@ -44,7 +44,7 @@ def main():
     # Initialize
     print("🚀 Initializing SQL Agent...")
     agent = SQLAgent(dbPath='bike_store.db')
-    conn = duckdb.connect('bike_store.db')
+    conn = agent.duckdbConn
     
     try:
         while True:
