@@ -16,6 +16,7 @@ from sentence_transformers import SentenceTransformer
 from langchain_community.utilities import SQLDatabase
 import duckdb
 from typing import List, Dict, Any
+from agents.ValidatorAgent import ValidatorAgent
 
 
 # Format of the few-shot examples that will help the LLM
@@ -44,6 +45,11 @@ class SQLAgent:
         # Initialize embedder and examples
         self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
         self.exampleBank = self.setupFewShotExamples()
+
+        # Lightweight reviewer/validator agent (max 2 correction attempts)
+        self.reviewer = ValidatorAgent(
+            conn=self.duckdbConn, model=self.model, maxCorrections=2
+        )
 
         print(f"✅ SQL Agent initialized with {len(self.exampleBank)} examples")
 
@@ -437,11 +443,21 @@ CORRECTED SQL:
             llmResponse = response['message']['content']
             sql = self.getSQL(llmResponse)
 
-            # Step 5: VALIDATE AND CORRECT (CRITICAL!)
-            print("🔍 Validating SQL...")
-            sql = self.validateAndCorrectQuery(sql, question, maxAttempts=3)
+            # Step 5: Lightweight review & correction (max 2 rounds)
+            print("🔍 Running ValidatorAgent review...")
+            reviewResult = self.reviewer.validate(
+                question=question, sql=sql, schemaContext=schemaContext
+            )
 
-            print(f"✅ Final SQL: {sql}...")
+            sql = reviewResult['sql']
+            if reviewResult['approved']:
+                print(f"✅ Reviewer APPROVED (attempts: {reviewResult['attempts']})")
+            else:
+                print(f"⚠️  Reviewer could not fully approve after {reviewResult['attempts']} corrections")
+                if reviewResult['issues']:
+                    print(f"   Issues: {reviewResult['issues'][:3]}")
+
+            print(f"✅ Final SQL: {sql}")
             return sql
 
         except Exception as e:
