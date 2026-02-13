@@ -35,11 +35,10 @@ class SQLAgent:
         self.ollamaClient = ollama.Client(host=os.getenv(
             'OLLAMA_HOST', 'http://localhost:11434'))
 
-        #DuckDB connection
+        # Store DB path but don't keep connection open
         self.dbPath = dbPath
-        self.duckdbConn = duckdb.connect(dbPath)
 
-        # Load schema
+        # Load schema with temporary connection
         self.schemaInfo = self.loadSchema()
 
         # Initialize embedder and examples
@@ -47,25 +46,34 @@ class SQLAgent:
         self.exampleBank = self.setupFewShotExamples()
 
         # Lightweight reviewer/validator agent (max 2 correction attempts)
+        # Will create connections as needed
         self.reviewer = ValidatorAgent(
-            conn=self.duckdbConn, model=self.model, maxCorrections=2
+            dbPath=self.dbPath, model=self.model, maxCorrections=2
         )
 
         print(f"✅ SQL Agent initialized with {len(self.exampleBank)} examples")
+    
+    def _get_connection(self):
+        """Get a temporary database connection"""
+        return duckdb.connect(self.dbPath)
 
 
     def loadSchema(self) -> Dict[str, Any]:
-        """Load schema using DuckDB"""
+        """Load schema using DuckDB with temporary connection"""
         schemaWithSamples = {}
 
+        conn = None
         try:
+            # Use temporary connection
+            conn = self._get_connection()
+            
             # Get all table names
-            tables = self.duckdbConn.execute("SHOW TABLES").fetchall()
+            tables = conn.execute("SHOW TABLES").fetchall()
             tableNames = [table[0] for table in tables]
 
             for tableName in tableNames:
                 # Get column information
-                columns = self.duckdbConn.execute(
+                columns = conn.execute(
                     f"DESCRIBE {tableName}").fetchall()
 
                 columnInfo = []
@@ -77,7 +85,7 @@ class SQLAgent:
                     })
 
                 # Get sample data
-                cursor = self.duckdbConn.execute(
+                cursor = conn.execute(
                     f"SELECT * FROM {tableName} LIMIT 3"
                 )
                 rows = cursor.fetchall()
@@ -89,13 +97,14 @@ class SQLAgent:
                     'samples': samples
                 }
 
-            # print("Schema with Samples from loadSchema: ",
-            #       schemaWithSamples, "\n")
             return schemaWithSamples
 
         except Exception as e:
             print(f"Error loading schema: {e}")
             return {}
+        finally:
+            if conn:
+                conn.close()
 
     def setupFewShotExamples(self) -> List[FewShotExample]:
         examples = [
@@ -332,12 +341,16 @@ SQL:
         Improves accuracy by 3-5%.
         """
         for attempt in range(maxAttempts):
+            conn = None
             try:
+                # Use temporary connection for validation
+                conn = self._get_connection()
+                
                 # Validate syntax with EXPLAIN
-                self.duckdbConn.execute(f"EXPLAIN {sql}")
+                conn.execute(f"EXPLAIN {sql}")
 
                 # Execute query
-                result = self.duckdbConn.execute(sql).fetchall()
+                result = conn.execute(sql).fetchall()
 
                 # Check for empty results (potential semantic error)
                 if len(result) == 0 and not self._expectsEmpty(question):
@@ -355,6 +368,9 @@ SQL:
                     sql = self._regenerateWithFeedback(question, sql, str(e))
                 else:
                     print(f"⚠️  Max attempts reached, returning last SQL")
+            finally:
+                if conn:
+                    conn.close()
 
         return sql
 
@@ -465,6 +481,5 @@ CORRECTED SQL:
             raise
 
     def close(self):
-        """Cleanup resources"""
-        if hasattr(self, 'duckdbConn') and self.duckdbConn:
-            self.duckdbConn.close()
+        """Cleanup resources - no persistent connections to close"""
+        pass

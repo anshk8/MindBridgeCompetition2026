@@ -28,13 +28,17 @@ class ValidatorAgent:
     Will attempt to correct a failing query up to `maxCorrections` times.
     """
 
-    def __init__(self, conn: duckdb.DuckDBPyConnection, model: str = None, maxCorrections: int = 2):
-        self.conn = conn
+    def __init__(self, dbPath: str, model: str = None, maxCorrections: int = 2):
+        self.dbPath = dbPath
         self.model = model or os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
         self.ollamaClient = ollama.Client(
             host=os.getenv('OLLAMA_HOST', 'http://localhost:11434')
         )
         self.maxCorrections = maxCorrections
+    
+    def _get_connection(self):
+        """Get a temporary database connection"""
+        return duckdb.connect(self.dbPath)
 
     # ------------------------------------------------------------------
     # Public API
@@ -138,8 +142,10 @@ class ValidatorAgent:
 
     def _executeSQL(self, sql: str) -> Dict[str, Any]:
         """Try running the SQL and return execution metadata."""
+        conn = None
         try:
-            result = self.conn.execute(sql).fetchall()
+            conn = self._get_connection()
+            result = conn.execute(sql).fetchall()
             sample = str(result[0])[:100] if result else None
             return {
                 'success': True,
@@ -154,6 +160,9 @@ class ValidatorAgent:
                 'sample_result': None,
                 'error': str(e),
             }
+        finally:
+            if conn:
+                conn.close()
 
     def _semanticReview(self, question: str, sql: str, schemaContext: str) -> Dict[str, Any]:
         """Ask the LLM whether the SQL semantically answers the question."""
