@@ -13,10 +13,9 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import ollama
 from sentence_transformers import SentenceTransformer
-from langchain_community.utilities import SQLDatabase
-import duckdb
 from typing import List, Dict, Any
 from agents.ValidatorAgent import ValidatorAgent
+from utils.helpers import expectsEmpty
 
 
 # Format of the few-shot examples that will help the LLM
@@ -353,7 +352,7 @@ SQL:
                 result = conn.execute(sql).fetchall()
 
                 # Check for empty results (potential semantic error)
-                if len(result) == 0 and not self._expectsEmpty(question):
+                if len(result) == 0 and not expectsEmpty(question):
                     print(
                         f"⚠️  Query returned no results (attempt {attempt + 1})")
 
@@ -411,12 +410,6 @@ CORRECTED SQL:
         except Exception as e:
             print(f"Regeneration failed: {e}")
             return failedSQL
-
-    def expectsEmpty(self, question: str) -> bool:
-        """Check if question expects empty results"""
-        emptyKeywords = ['never', 'no ', 'none',
-                         'zero', 'empty', 'without', 'don\'t', 'not']
-        return any(kw in question.lower() for kw in emptyKeywords)
 
     def generate(self, question: str) -> str:
         """

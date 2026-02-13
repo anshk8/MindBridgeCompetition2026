@@ -136,7 +136,7 @@ class QueryWriter:
                 if line.strip().startswith('```'):
                     in_code_block = not in_code_block
                     continue
-                if not in_code_block or not line.strip().startswith('```'):
+                if in_code_block and not line.strip().startswith('```'):
                     cleaned_lines.append(line)
             
             sql = '\n'.join(cleaned_lines).strip()

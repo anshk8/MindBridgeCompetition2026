@@ -14,6 +14,7 @@ import re
 import duckdb
 import ollama
 from typing import Dict, Any, Optional
+from utils.helpers import expectsEmpty
 
 
 class ValidatorAgent:
@@ -61,14 +62,19 @@ class ValidatorAgent:
         """
         attempts = 0
         currentSQL = sql
-        issues: list[str] = []
+        issues: set[str] = set()
+        lastExecutedSQL = None
+        lastExecResult = None
 
-        while attempts <= self.maxCorrections:
-            # --- Step 1: Execute ---
-            execResult = self._executeSQL(currentSQL)
+        while attempts < self.maxCorrections:
+            # --- Step 1: Execute (only if SQL changed) ---
+            if currentSQL != lastExecutedSQL:
+                lastExecResult = self._executeSQL(currentSQL)
+                lastExecutedSQL = currentSQL
+            execResult = lastExecResult
 
             if not execResult['success']:
-                issues.append(f"Execution error: {execResult['error']}")
+                issues.add(f"Execution error: {execResult['error']}")
                 attempts += 1
                 if attempts > self.maxCorrections:
                     break
@@ -84,8 +90,8 @@ class ValidatorAgent:
 
             # --- Step 2: Quick sanity checks ---
             rowCount = execResult['row_count']
-            if rowCount == 0 and not self._expectsEmpty(question):
-                issues.append("Query returned 0 rows (expected results)")
+            if rowCount == 0 and not expectsEmpty(question):
+                issues.add("Query returned 0 rows (expected results)")
                 # Don't burn a correction round for this — it may still be correct
 
             # --- Step 3: Semantic review via LLM ---
@@ -103,7 +109,7 @@ class ValidatorAgent:
                 }
 
             # Not approved — try to correct
-            issues.extend(review.get('issues', []))
+            issues.update(review.get('issues', []))
             suggestion = review.get('suggestion')
 
             attempts += 1
@@ -124,15 +130,19 @@ class ValidatorAgent:
                 else:
                     break
 
-        # Exhausted attempts — return best effort
-        finalExec = self._executeSQL(currentSQL)
+        # Exhausted attempts — return best effort (reuse last execution if available)
+        if currentSQL == lastExecutedSQL and lastExecResult:
+            finalExec = lastExecResult
+        else:
+            finalExec = self._executeSQL(currentSQL)
+        
         return {
             'approved': False,
             'sql': currentSQL,
             'attempts': attempts,
             'execution_ok': finalExec['success'],
             'row_count': finalExec.get('row_count', 0),
-            'issues': issues,
+            'issues': list(issues),
             'sample_result': finalExec.get('sample_result'),
         }
 
@@ -179,12 +189,12 @@ Review this SQL for semantic correctness. Check:
 1. Are the correct tables being queried for this question?
 2. Do ALL referenced columns actually exist in the schema above?
 3. Are JOIN conditions using the correct foreign keys?
-4. Are calculations correct? (e.g., order totals = quantity * list_price * (1 - discount))
+4. Are calculations and derived values correct and consistent with the schema and question?
 5. Does the query actually answer the user's question?
 
 Common mistakes to watch for:
-- Using non-existent columns like "total_amount", "order_total", "total_price"
-- Forgetting to compute totals from the order_items table
+- Using columns that do not exist in the provided schema
+- Forgetting to compute derived totals or aggregates from base numeric columns
 - Wrong JOIN conditions or missing JOINs
 - Incorrect GROUP BY columns
 
@@ -204,12 +214,11 @@ CORRECTED_SQL: <corrected SQL if rejected, or "None">
             return self._parseReview(response['message']['content'])
         except Exception as e:
             print(f"⚠️  Semantic review failed: {e}")
-            # If review itself errors out, give benefit of the doubt
-            return {'approved': True, 'issues': [], 'suggestion': None}
+            return {'approved': False, 'issues': ["Semantic review failed"], 'suggestion': None}
 
     def _parseReview(self, text: str) -> Dict[str, Any]:
         """Parse the structured LLM review response."""
-        approved = True
+        approved = False
         issues: list[str] = []
         suggestion: Optional[str] = None
 
@@ -219,7 +228,7 @@ CORRECTED_SQL: <corrected SQL if rejected, or "None">
             approved = verdict_match.group(1).strip().upper() == 'APPROVED'
 
         # Parse ISSUES
-        issues_match = re.search(r'ISSUES:\s*(.+?)(?=\n(?:CORRECTED_SQL|SUGGESTION)|$)', text, re.DOTALL | re.IGNORECASE)
+        issues_match = re.search(r'ISSUES:\s*(.+?)(?=\nCORRECTED_SQL|$)', text, re.DOTALL | re.IGNORECASE)
         if issues_match:
             raw = issues_match.group(1).strip()
             if raw.lower() != 'none':
@@ -283,9 +292,3 @@ Return ONLY the corrected SQL, nothing else.
         if sql:
             sql = re.sub(r'\s+', ' ', sql).rstrip(';')
         return sql
-
-    @staticmethod
-    def _expectsEmpty(question: str) -> bool:
-        """Heuristic: does the question expect zero rows?"""
-        keywords = ['never', 'no ', 'none', 'zero', 'empty', 'without', "don't", 'not']
-        return any(kw in question.lower() for kw in keywords)
