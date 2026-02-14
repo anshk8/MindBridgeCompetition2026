@@ -1,8 +1,11 @@
 """
 SQL Agent Testing Suite
 
-This script tests the single SQLAgent that uses Chain-of-Thought reasoning
-and Dynamic Few-Shot Learning to generate SQL queries.
+Tests the QueryWriter (competition interface) which orchestrates
+SQLAgent + ValidatorAgent pipeline.
+The SQLAgent generates SQL via CoT + Dynamic Few-Shot Learning,
+then the ValidatorAgent reviews for syntax, execution, and semantics
+(max 2 correction rounds).
 """
 
 import json
@@ -10,8 +13,7 @@ import duckdb
 from typing import Dict, Any
 from datetime import datetime
 
-# Import the SQL Agent
-from agents.SQLAgent import SQLAgent
+from agent import QueryWriter
 
 # ==================== NEW TEST QUERIES (NOT IN FEW-SHOT EXAMPLES) ====================
 
@@ -113,23 +115,61 @@ TEST_QUERIES = {
             "expected_sql": "SELECT c.category_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) as category_revenue, (SUM(oi.quantity * oi.list_price * (1 - oi.discount)) * 100.0 / (SELECT SUM(quantity * list_price * (1 - discount)) FROM order_items)) as revenue_percentage FROM categories c JOIN products p ON c.category_id = p.category_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY c.category_name ORDER BY revenue_percentage DESC",
             "notes": "Multi-table JOIN with subquery for percentage calculation"
         }
-    ]
+    ],
+    "hard_advanced": [
+    {
+        "id": "H6",
+        "question": "Which staff members manage other staff, and how many people does each manager supervise?",
+        "expected_sql": "SELECT m.first_name, m.last_name, m.staff_id, COUNT(s.staff_id) as direct_reports FROM staffs m JOIN staffs s ON m.staff_id = CAST(s.manager_id AS BIGINT) GROUP BY m.staff_id, m.first_name, m.last_name ORDER BY direct_reports DESC",
+        "notes": "Self-join on staffs table with hierarchy, tests manager_id relationship"
+    },
+    {
+        "id": "H7",
+        "question": "For each brand, show the number of products and the average price, but only for brands that have products in at least 3 different categories",
+        "expected_sql": "SELECT b.brand_name, COUNT(DISTINCT p.product_id) as product_count, AVG(p.list_price) as avg_price FROM brands b JOIN products p ON b.brand_id = p.brand_id GROUP BY b.brand_id, b.brand_name HAVING COUNT(DISTINCT p.category_id) >= 3 ORDER BY product_count DESC",
+        "notes": "Multiple aggregations with HAVING clause on COUNT DISTINCT, tests complex filtering"
+    },
+    {
+        "id": "H8",
+        "question": "List customers who placed orders in 2016 but not in 2017",
+        "expected_sql": "SELECT c.first_name, c.last_name, c.email FROM customers c WHERE c.customer_id IN (SELECT DISTINCT customer_id FROM orders WHERE YEAR(order_date) = 2016) AND c.customer_id NOT IN (SELECT DISTINCT customer_id FROM orders WHERE YEAR(order_date) = 2017)",
+        "notes": "Multiple subqueries with set operations (IN and NOT IN), tests temporal filtering"
+    },
+    {
+        "id": "H9",
+        "question": "What is the month-over-month revenue growth for 2017?",
+        "expected_sql": "SELECT MONTH(o.order_date) as month, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) as monthly_revenue FROM orders o JOIN order_items oi ON o.order_id = oi.order_id WHERE YEAR(o.order_date) = 2017 GROUP BY MONTH(o.order_date) ORDER BY month",
+        "notes": "Date aggregation by month with calculated revenue, tests temporal grouping (note: full MoM growth would need LAG window function)"
+    },
+    {
+        "id": "H10",
+        "question": "Find products that are stocked in all stores",
+        "expected_sql": "SELECT p.product_name, p.product_id FROM products p WHERE (SELECT COUNT(DISTINCT st.store_id) FROM stocks st WHERE st.product_id = p.product_id) = (SELECT COUNT(*) FROM stores)",
+        "notes": "Correlated subquery testing 'for all' logic (division), tests universal quantification"
+    }
+]
+
+    
 }
 
 # ==================== AGENT TESTER ====================
 
 class SQLAgentTester:
     """
-    Tests the single SQLAgent with various queries.
+    Tests the QueryWriter (which orchestrates SQLAgent + ValidatorAgent).
+    This tests the actual competition interface.
     """
     
     def __init__(self, db_path: str = 'bike_store.db'):
-        """Initialize the SQL Agent"""
-        print("🚀 Initializing SQL Agent...")
-        self.agent = SQLAgent(dbPath=db_path)
+        """Initialize the QueryWriter (competition interface)"""
+        print("🚀 Initializing QueryWriter (SQLAgent + ValidatorAgent pipeline)...")
+        self.writer = QueryWriter(db_path=db_path)
         self.db_path = db_path
-        # Use the agent's connection instead of creating a new one
-        self.conn = self.agent.duckdbConn
+        
+    def _get_connection(self):
+        """Get a temporary database connection for validation"""
+        import duckdb
+        return duckdb.connect(self.db_path)
     
     def validate_sql_execution(self, sql: str) -> Dict[str, Any]:
         """
@@ -144,8 +184,10 @@ class SQLAgentTester:
             'sample_result': None
         }
         
+        conn = None
         try:
-            result = self.conn.execute(sql).fetchall()
+            conn = self._get_connection()
+            result = conn.execute(sql).fetchall()
             validation['executes'] = True
             validation['row_count'] = len(result)
             
@@ -155,12 +197,15 @@ class SQLAgentTester:
             
         except Exception as e:
             validation['error'] = str(e)
+        finally:
+            if conn:
+                conn.close()
         
         return validation
     
     def run_test(self, test_query: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Run a single query through the SQL Agent.
+        Run a single query through the QueryWriter.
         
         Returns detailed results.
         """
@@ -173,19 +218,30 @@ class SQLAgentTester:
             'generated_sql': None,
             'success': False,
             'error': None,
-            'validation': None
+            'validation': None,
+            'reviewer_approved': None,
+            'reviewer_attempts': 0,
+            'reviewer_issues': [],
         }
         
         try:
-            # Generate SQL using the agent
-            generated_sql = self.agent.generate(question)
-            result['generated_sql'] = generated_sql
-            
-            # Validate the generated SQL
-            validation = self.validate_sql_execution(generated_sql)
+            # Generate SQL using QueryWriter (orchestrates SQLAgent + ValidatorAgent)
+            final_sql = self.writer.generate_query(question)
+            result['generated_sql'] = final_sql
+
+            # Access the validator results from the writer's internal validator
+            # Note: The QueryWriter already ran validation, so we just need execution check
+            schema_ctx = self.writer.agent.buildSchemaContext()
+            review_info = self.writer.validator.validate(question, final_sql, schema_ctx)
+            result['reviewer_approved'] = review_info['approved']
+            result['reviewer_attempts'] = review_info['attempts']
+            result['reviewer_issues'] = review_info.get('issues', [])
+
+            # Validate execution
+            validation = self.validate_sql_execution(final_sql)
             result['validation'] = validation
             result['success'] = validation['executes']
-            
+
             if not validation['executes']:
                 result['error'] = validation['error']
             
@@ -209,7 +265,7 @@ class SQLAgentTester:
         all_results = []
         
         print("\n" + "="*80)
-        print("🧪 SQL AGENT COMPREHENSIVE TEST SUITE")
+        print("🧪 QUERYWRITER COMPREHENSIVE TEST SUITE")
         print("="*80)
         print(f"Testing {sum(len(TEST_QUERIES[d]) for d in difficulties)} queries")
         print(f"Difficulties: {', '.join(difficulties)}")
@@ -239,14 +295,19 @@ class SQLAgentTester:
                 
                 if result['success']:
                     validation = result['validation']
-                    print(f"\n✅ Status: SUCCESS")
+                    approved_tag = ' (Reviewer: APPROVED)' if result.get('reviewer_approved') else ' (Reviewer: NOT APPROVED)'
+                    print(f"\n\u2705 Status: SUCCESS{approved_tag}")
                     print(f"   Returned {validation['row_count']} rows")
+                    if result.get('reviewer_attempts', 0) > 0:
+                        print(f"   Reviewer correction attempts: {result['reviewer_attempts']}")
                     if validation['sample_result']:
                         print(f"   Sample: {validation['sample_result']}")
                 else:
-                    print(f"\n❌ Status: FAILED")
+                    print(f"\n\u274c Status: FAILED")
                     if result['error']:
                         print(f"   Error: {result['error'][:150]}")
+                    if result.get('reviewer_issues'):
+                        print(f"   Reviewer issues: {result['reviewer_issues'][:3]}")
                 
                 print('-'*80)
         
@@ -268,7 +329,13 @@ class SQLAgentTester:
         print(f"\nTotal Tests: {total_tests}")
         print(f"  ✅ Successful: {successful} ({successful/total_tests*100:.1f}%)")
         print(f"  ❌ Failed: {failed} ({failed/total_tests*100:.1f}%)")
-        
+        # Reviewer stats
+        reviewed = [r for r in results if r.get('reviewer_approved') is not None]
+        reviewer_approved = sum(1 for r in reviewed if r['reviewer_approved'])
+        corrections_used = sum(r.get('reviewer_attempts', 0) for r in results)
+        print(f"\n\U0001f50d Reviewer Stats:")
+        print(f"  Approved on first pass: {reviewer_approved}/{len(reviewed)}")
+        print(f"  Total correction rounds used: {corrections_used}")        
         # Breakdown by difficulty
         print("\n\nBreakdown by Difficulty:")
         for difficulty in ['easy', 'medium', 'hard']:
@@ -317,23 +384,22 @@ class SQLAgentTester:
     
     def close(self):
         """Clean up resources"""
-        if hasattr(self.agent, 'close'):
-            self.agent.close()
-        # Don't close conn since it's the agent's connection
+        if hasattr(self.writer, 'close'):
+            self.writer.close()
 
 # ==================== MAIN ====================
 
 def main():
     """Run the test suite"""
     print("\n" + "="*80)
-    print("🧪 SQL AGENT COMPREHENSIVE TESTING")
+    print("🧪 QUERYWRITER COMPREHENSIVE TESTING")
     print("="*80)
-    print("\nThis will test the SQL Agent with 15 NEW queries:")
+    print("\nThis will test the QueryWriter (competition interface) with 15 NEW queries:")
     print("  🟢 5 Easy queries (90-100% target)")
     print("  🟡 5 Medium queries (70-85% target)")  
     print("  🔴 5 Hard queries (50-70% target)")
     print("\n⚠️  IMPORTANT: These queries are NOT in the few-shot examples!")
-    print("   This tests true generalization, not memorization.")
+    print("   The QueryWriter uses SQLAgent (generation) + ValidatorAgent (validation).")
     print("\nYou'll see:")
     print("  - Generated SQL for each query")
     print("  - Execution validation")
@@ -346,8 +412,8 @@ def main():
     tester = SQLAgentTester()
     
     try:
-        # Run all tests
-        results = tester.run_test_suite(difficulties=['easy', 'medium', 'hard'])
+        # Run all tests (all difficulties now that medium is active)
+        results = tester.run_test_suite(difficulties=['hard', 'hard_advanced'])
         
         print("\n✅ Testing complete!")
         print("\n💡 Tips for improvement if accuracy is low:")

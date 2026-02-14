@@ -16,6 +16,7 @@ import duckdb
 from typing import Dict, Any
 from db.bike_store import get_schema_info
 from agents.SQLAgent import SQLAgent
+from agents.ValidatorAgent import ValidatorAgent
 
 
 def get_ollama_client():
@@ -57,13 +58,22 @@ class QueryWriter:
         self.db_path = db_path
         
         # Initialize the sophisticated SQL Agent
-        # This handles all the heavy lifting:
+        # This handles:
         # - Schema introspection with sample data
         # - Embedding model for few-shot retrieval
         # - Chain-of-Thought prompt construction
-        # - SQL generation with validation
+        # - SQL generation with LLM
         print(f"🚀 Initializing QueryWriter with {os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:7b')}...")
         self.agent = SQLAgent(dbPath=db_path)
+        
+        # Initialize the ValidatorAgent
+        # This handles:
+        # - SQL syntax validation
+        # - Execution testing
+        # - Semantic review
+        # - SQL correction (max 2 attempts)
+        print(f"🔍 Initializing ValidatorAgent...")
+        self.validator = ValidatorAgent(dbPath=db_path, maxCorrections=2)
         
         # Load schema for compatibility with main.py expectations
         self.schema = self._load_schema()
@@ -74,39 +84,63 @@ class QueryWriter:
         """
         Generate a SQL query from a natural language prompt.
 
-        This method is called by the evaluation system. It must:
-        1. Accept a natural language question as input
-        2. Return a valid SQL query string
+        This method is called by the evaluation system. It orchestrates:
+        1. SQL generation via SQLAgent (Chain-of-Thought + Few-Shot)
+        2. Validation and correction via ValidatorAgent
+        3. Returns the final validated SQL query
 
         Args:
             prompt (str): The natural language question from the user.
                          Example: "What are the top 5 most expensive products?"
 
         Returns:
-            str: A valid SQL query that answers the question.
+            str: A validated SQL query that answers the question.
                  Example: "SELECT product_name, list_price FROM products ORDER BY list_price DESC LIMIT 5"
 
         Note:
             - Returns ONLY the SQL query string (no markdown, no explanations)
-            - Query is validated for syntax and semantics
-            - Uses Chain-of-Thought reasoning internally for accuracy
-            - Automatically retrieves similar examples via semantic search
+            - Query is validated for syntax, execution, and semantics
+            - Automatically corrects issues (max 2 correction attempts)
         """
         try:
-            # Generate SQL using the sophisticated agent
+            # Step 1: Generate SQL using SQLAgent
             # This internally:
-            # 1. Embeds the question
-            # 2. Retrieves 3 most similar few-shot examples
-            # 3. Builds rich schema context with sample data
-            # 4. Constructs Chain-of-Thought prompt
-            # 5. Generates SQL with LLM
-            # 6. Validates and self-corrects if needed
+            # - Embeds the question
+            # - Retrieves 3 most similar few-shot examples
+            # - Builds rich schema context with sample data
+            # - Constructs Chain-of-Thought prompt
+            # - Generates SQL with LLM
             sql = self.agent.generate(prompt)
             
-            # Ensure clean output for competition evaluation
-            sql = self._clean_sql(sql)
+            # Step 2: Validate and correct using ValidatorAgent
+            # This:
+            # - Validates SQL syntax (via EXPLAIN)  
+            # - Tests execution
+            # - Performs semantic review
+            # - Corrects issues if found (max 2 attempts)
+            print(f"\n🔍 Validating generated SQL...")
+            schema_context = self.agent.buildSchemaContext()
+            validation_result = self.validator.validate(
+                question=prompt,
+                sql=sql,
+                schemaContext=schema_context
+            )
             
-            return sql
+            # Get the final SQL (corrected if needed)
+            final_sql = validation_result['sql']
+            
+            # Log validation results
+            if validation_result['approved']:
+                print(f"✅ Validator APPROVED (attempts: {validation_result['attempts']})")
+            else:
+                print(f"⚠️  Validator could not fully approve after {validation_result['attempts']} attempts")
+                if validation_result.get('issues'):
+                    print(f"   Issues: {validation_result['issues'][:3]}")
+            
+            # Ensure clean output for competition evaluation
+            final_sql = self._clean_sql(final_sql)
+            
+            return final_sql
             
         except Exception as e:
             # Log error but don't crash

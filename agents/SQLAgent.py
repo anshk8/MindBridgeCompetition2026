@@ -13,9 +13,6 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import ollama
 from sentence_transformers import SentenceTransformer
-from typing import List, Dict, Any
-from agents.ValidatorAgent import ValidatorAgent
-from utils.helpers import expectsEmpty
 
 
 # Format of the few-shot examples that will help the LLM
@@ -43,12 +40,6 @@ class SQLAgent:
         # Initialize embedder and examples
         self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
         self.exampleBank = self.setupFewShotExamples()
-
-        # Lightweight reviewer/validator agent (max 2 correction attempts)
-        # Will create connections as needed
-        self.reviewer = ValidatorAgent(
-            dbPath=self.dbPath, model=self.model, maxCorrections=2
-        )
 
         print(f"✅ SQL Agent initialized with {len(self.exampleBank)} examples")
     
@@ -333,89 +324,17 @@ SQL:
 
         return sql
 
-    def validateAndCorrectQuery(self, sql: str, question: str, maxAttempts: int = 3) -> str:
-        """
-        Execution-based validation with self-correction loop.
-
-        Improves accuracy by 3-5%.
-        """
-        for attempt in range(maxAttempts):
-            conn = None
-            try:
-                # Use temporary connection for validation
-                conn = self._get_connection()
-                
-                # Validate syntax with EXPLAIN
-                conn.execute(f"EXPLAIN {sql}")
-
-                # Execute query
-                result = conn.execute(sql).fetchall()
-
-                # Check for empty results (potential semantic error)
-                if len(result) == 0 and not expectsEmpty(question):
-                    print(
-                        f"⚠️  Query returned no results (attempt {attempt + 1})")
-
-                print(f"✅ Validated SQL (attempt {attempt + 1})")
-                return sql
-
-            except Exception as e:
-                print(f"❌ Validation failed (attempt {attempt + 1}): {str(e)}")
-
-                if attempt < maxAttempts - 1:
-                    # Regenerate with error feedback
-                    sql = self._regenerateWithFeedback(question, sql, str(e))
-                else:
-                    print(f"⚠️  Max attempts reached, returning last SQL")
-            finally:
-                if conn:
-                    conn.close()
-
-        return sql
-
-    def _regenerateWithFeedback(self, question: str, failedSQL: str, errorMessage: str) -> str:
-        """Regenerate SQL with specific error feedback"""
-        schemaContext = self.buildSchemaContext()
-
-        feedbackPrompt = f"""Your previous SQL query had an error.
-
-ORIGINAL QUESTION: {question}
-
-YOUR SQL: {failedSQL}
-
-ERROR MESSAGE: {errorMessage}
-
-DATABASE SCHEMA:
-{schemaContext}
-
-Analyze the error and generate a CORRECTED SQL query:
-
-1. What caused this error?
-2. What table/column names are actually available?
-3. What is the correct JOIN condition or WHERE clause?
-
-CORRECTED SQL:
-"""
-
-        try:
-            response = self.ollamaClient.chat(
-                model=self.model,
-                messages=[
-                    {'role': 'system',
-                        'content': 'You are an expert at debugging and fixing SQL queries.'},
-                    {'role': 'user', 'content': feedbackPrompt}
-                ]
-            )
-            return self.getSQL(response['message']['content'])
-        except Exception as e:
-            print(f"Regeneration failed: {e}")
-            return failedSQL
-
     def generate(self, question: str) -> str:
         """
-        Generate SQL query with validation and self-correction.
+        Generate SQL query using Chain-of-Thought reasoning and Few-Shot Learning.
 
-        This is the complete workflow including the critical validation step.
+        This method:
+        1. Retrieves similar examples from the example bank
+        2. Builds rich schema context with sample data
+        3. Constructs a Chain-of-Thought prompt
+        4. Generates SQL using the LLM
+
+        Note: This method only generates SQL. Validation should be done separately.
         """
         print(f"\nGenerating Query for: {question}")
 
@@ -452,21 +371,7 @@ CORRECTED SQL:
             llmResponse = response['message']['content']
             sql = self.getSQL(llmResponse)
 
-            # Step 5: Lightweight review & correction (max 2 rounds)
-            print("🔍 Running ValidatorAgent review...")
-            reviewResult = self.reviewer.validate(
-                question=question, sql=sql, schemaContext=schemaContext
-            )
-
-            sql = reviewResult['sql']
-            if reviewResult['approved']:
-                print(f"✅ Reviewer APPROVED (attempts: {reviewResult['attempts']})")
-            else:
-                print(f"⚠️  Reviewer could not fully approve after {reviewResult['attempts']} corrections")
-                if reviewResult['issues']:
-                    print(f"   Issues: {reviewResult['issues'][:3]}")
-
-            print(f"✅ Final SQL: {sql}")
+            print(f"✅ Generated SQL: {sql}")
             return sql
 
         except Exception as e:
