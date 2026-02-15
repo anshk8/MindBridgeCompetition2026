@@ -186,6 +186,7 @@ class QueryWriter:
         
         Returns dict mapping table names to column information.
         """
+        conn = None
         try:
             conn = duckdb.connect(self.db_path)
             schema = {}
@@ -202,12 +203,14 @@ class QueryWriter:
                     for col in columns
                 ]
             
-            conn.close()
             return schema
             
         except Exception as e:
             print(f"⚠️  Warning: Could not load schema: {e}")
             return {}
+        finally:
+            if conn is not None:
+                conn.close()
     
     def close(self):
         """Clean up resources (called at end of session)"""
