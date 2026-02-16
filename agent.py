@@ -1,12 +1,21 @@
 """
-SQL Query Writer Agent
+SQL Query Writer Agent - Competition Submission
 
-This file contains the QueryWriter class that generates SQL queries from natural language.
-Implement your agent logic in this file.
+This module implements the required QueryWriter interface for the competition.
+It wraps the sophisticated SQLAgent that uses Chain-of-Thought reasoning
+and Dynamic Few-Shot Learning for accurate SQL generation.
+
+Architecture:
+- QueryWriter: Competition interface (this file)
+- SQLAgent: Advanced SQL generator with CoT + Few-Shot Learning
+- ValidatorAgent: SQL validation and correction (optional)
 """
 
 import os
-from db.bike_store import get_schema_info
+import duckdb
+from typing import Dict, Any
+from agents.SQLAgent import SQLAgent
+from agents.ValidatorAgent import ValidatorAgent
 
 
 def get_ollama_client():
@@ -46,73 +55,164 @@ class QueryWriter:
             db_path (str): Path to the DuckDB database file.
         """
         self.db_path = db_path
-        self.schema = get_schema_info(db_path=db_path)
-        self.client = get_ollama_client()
-        self.model = get_model_name()
 
-        # TODO: Add any additional initialization here
-        # For example:
-        # - Set up prompt templates
-        # - Initialize any additional components (e.g., LangChain agents)
-        # - Load any additional resources
+        # Initialize the sophisticated SQL Agent
+        # This handles:
+        # - Schema introspection with sample data
+        # - Embedding model for few-shot retrieval
+        # - Chain-of-Thought prompt construction
+        # - SQL generation with LLM
+        print(
+            f"🚀 Initializing QueryWriter")
+        self.agent = SQLAgent(dbPath=db_path)
+
+        # Initialize the ValidatorAgent
+        # This handles:
+        # - SQL syntax validation
+        # - Execution testing
+        # - Semantic review
+        # - SQL correction (max 2 attempts)
+        print(f"🔍 Initializing ValidatorAgent...")
+        self.validator = ValidatorAgent(dbPath=db_path, maxCorrections=2)
+
+        # Load schema for compatibility with main.py expectations
+        self.schema = self._load_schema()
+
+        print("✅ QueryWriter ready!")
 
     def generate_query(self, prompt: str) -> str:
         """
         Generate a SQL query from a natural language prompt.
 
-        This method is called by the evaluation system. It must:
-        1. Accept a natural language question as input
-        2. Return a valid SQL query string
+        This method is called by the evaluation system. It orchestrates:
+        1. SQL generation via SQLAgent (Chain-of-Thought + Few-Shot)
+        2. Validation and correction via ValidatorAgent
+        3. Returns the final validated SQL query
 
         Args:
             prompt (str): The natural language question from the user.
                          Example: "What are the top 5 most expensive products?"
 
         Returns:
-            str: A valid SQL query that answers the question.
+            str: A validated SQL query that answers the question.
                  Example: "SELECT product_name, list_price FROM products ORDER BY list_price DESC LIMIT 5"
 
         Note:
-            - The query will be executed against the bike store DuckDB database
-            - Return ONLY the SQL query, no explanations or markdown formatting
-            - Handle edge cases gracefully (return a reasonable query or raise an exception)
+            - Returns ONLY the SQL query string (no markdown, no explanations)
+            - Query is validated for syntax, execution, and semantics
+            - Automatically corrects issues (max 2 correction attempts)
         """
-        # ============================================================
-        # YOUR IMPLEMENTATION HERE
-        # ============================================================
-        #
-        # Example implementation using Ollama directly:
-        #
-        schema_text = self._format_schema()
-        
-        system_prompt = f"""You are a SQL expert. Given the following database schema:
-        {schema_text}
-        
-        Generate a SQL query to answer the user's question.
-        Return ONLY the SQL query, no explanations."""
-        
-        response = self.client.chat(
-            model=self.model,
-            messages=[
-                {'role': 'system', 'content': system_prompt},
-                {'role': 'user', 'content': prompt}
-            ]
-        )
-        return response['message']['content'].strip()
-        #
-        # ============================================================
+        try:
+            # Step 1: Generate SQL using SQLAgent
+            # This internally:
+            # - Embeds the question
+            # - Retrieves 3 most similar few-shot examples
+            # - Builds rich schema context with sample data
+            # - Constructs Chain-of-Thought prompt
+            # - Generates SQL with LLM
+            sql = self.agent.generate(prompt)
 
-        raise NotImplementedError("Implement the generate_query method!")
+            # Step 2: Validate and correct using ValidatorAgent
+            # This:
+            # - Validates SQL syntax (via EXPLAIN)
+            # - Tests execution
+            # - Performs semantic review
+            # - Corrects issues if found (max 2 attempts)
+            print(f"\n🔍 Validating generated SQL...")
+            schema_context = self.agent.buildSchemaContext()
+            validation_result = self.validator.validate(
+                question=prompt,
+                sql=sql,
+                schemaContext=schema_context
+            )
 
-    def _format_schema(self) -> str:
+            # Get the final SQL (corrected if needed)
+            final_sql = validation_result['sql']
+
+            # Log validation results
+            if validation_result['approved']:
+                print(
+                    f"✅ Validator APPROVED (attempts: {validation_result['attempts']})")
+            else:
+                print(
+                    f"⚠️  Validator could not fully approve after {validation_result['attempts']} attempts")
+                if validation_result.get('issues'):
+                    print(f"   Issues: {validation_result['issues'][:3]}")
+
+            # Ensure clean output for competition evaluation
+            final_sql = self._clean_sql(final_sql)
+
+            return final_sql
+
+        except Exception as e:
+            # Log error but don't crash
+            print(f"⚠️  Error generating query: {e}")
+            # Return a safe fallback query that won't crash the evaluator
+            return "SELECT 1"
+
+    def _clean_sql(self, sql: str) -> str:
         """
-        Format the database schema as a string for the LLM prompt.
+        Clean SQL output to meet competition requirements.
 
-        Returns:
-            str: A formatted string representation of the database schema.
+        Removes:
+        - Markdown code blocks
+        - Extra whitespace
+        - Trailing semicolons (optional based on competition rules)
         """
-        schema_parts = []
-        for table_name, columns in self.schema.items():
-            cols = ", ".join([f"{col['name']} ({col['type']})" for col in columns])
-            schema_parts.append(f"Table {table_name}: {cols}")
-        return "\n".join(schema_parts)
+        sql = sql.strip()
+
+        # Remove markdown code blocks if present
+        if '```' in sql:
+            # Extract SQL from code block
+            lines = sql.split('\n')
+            cleaned_lines = []
+            in_code_block = False
+
+            for line in lines:
+                if line.strip().startswith('```'):
+                    in_code_block = not in_code_block
+                    continue
+                if in_code_block and not line.strip().startswith('```'):
+                    cleaned_lines.append(line)
+
+            sql = '\n'.join(cleaned_lines).strip()
+
+        # Remove trailing semicolon (competition may not want it)
+        sql = sql.rstrip(';')
+
+        return sql
+
+    def _load_schema(self) -> Dict[str, Any]:
+        """
+        Load database schema for compatibility with main.py.
+
+        Returns dict mapping table names to column information.
+        """
+        try:
+            with duckdb.connect(self.db_path) as conn:
+                schema = {}
+
+                # Get all table names
+                tables = conn.execute("SHOW TABLES").fetchall()
+
+                for table in tables:
+                    table_name = table[0]
+                    # Get column information
+                    columns = conn.execute(f"DESCRIBE {table_name}").fetchall()
+                    schema[table_name] = [
+                        {'name': col[0], 'type': col[1]}
+                        for col in columns
+                    ]
+
+                return schema
+        except Exception as e:
+            print(f"⚠️  Warning: Could not load schema: {e}")
+            return {}
+        finally:
+            if conn is not None:
+                conn.close()
+
+    def close(self):
+        """Clean up resources (called at end of session)"""
+        if hasattr(self.agent, 'close'):
+            self.agent.close()

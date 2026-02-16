@@ -13,9 +13,6 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import ollama
 from sentence_transformers import SentenceTransformer
-from langchain_community.utilities import SQLDatabase
-import duckdb
-from typing import List, Dict, Any
 
 
 # Format of the few-shot examples that will help the LLM
@@ -34,11 +31,10 @@ class SQLAgent:
         self.ollamaClient = ollama.Client(host=os.getenv(
             'OLLAMA_HOST', 'http://localhost:11434'))
 
-        #DuckDB connection
+        # Store DB path but don't keep connection open
         self.dbPath = dbPath
-        self.duckdbConn = duckdb.connect(dbPath)
 
-        # Load schema
+        # Load schema with temporary connection
         self.schemaInfo = self.loadSchema()
 
         # Initialize embedder and examples
@@ -46,20 +42,28 @@ class SQLAgent:
         self.exampleBank = self.setupFewShotExamples()
 
         print(f"✅ SQL Agent initialized with {len(self.exampleBank)} examples")
+    
+    def _get_connection(self):
+        """Get a temporary database connection"""
+        return duckdb.connect(self.dbPath)
 
 
     def loadSchema(self) -> Dict[str, Any]:
-        """Load schema using DuckDB"""
+        """Load schema using DuckDB with temporary connection"""
         schemaWithSamples = {}
 
+        conn = None
         try:
+            # Use temporary connection
+            conn = self._get_connection()
+            
             # Get all table names
-            tables = self.duckdbConn.execute("SHOW TABLES").fetchall()
+            tables = conn.execute("SHOW TABLES").fetchall()
             tableNames = [table[0] for table in tables]
 
             for tableName in tableNames:
                 # Get column information
-                columns = self.duckdbConn.execute(
+                columns = conn.execute(
                     f"DESCRIBE {tableName}").fetchall()
 
                 columnInfo = []
@@ -71,7 +75,7 @@ class SQLAgent:
                     })
 
                 # Get sample data
-                cursor = self.duckdbConn.execute(
+                cursor = conn.execute(
                     f"SELECT * FROM {tableName} LIMIT 3"
                 )
                 rows = cursor.fetchall()
@@ -83,13 +87,14 @@ class SQLAgent:
                     'samples': samples
                 }
 
-            # print("Schema with Samples from loadSchema: ",
-            #       schemaWithSamples, "\n")
             return schemaWithSamples
 
         except Exception as e:
             print(f"Error loading schema: {e}")
             return {}
+        finally:
+            if conn:
+                conn.close()
 
     def setupFewShotExamples(self) -> List[FewShotExample]:
         examples = [
@@ -319,88 +324,17 @@ SQL:
 
         return sql
 
-    def validateAndCorrectQuery(self, sql: str, question: str, maxAttempts: int = 3) -> str:
-        """
-        Execution-based validation with self-correction loop.
-
-        Improves accuracy by 3-5%.
-        """
-        for attempt in range(maxAttempts):
-            try:
-                # Validate syntax with EXPLAIN
-                self.duckdbConn.execute(f"EXPLAIN {sql}")
-
-                # Execute query
-                result = self.duckdbConn.execute(sql).fetchall()
-
-                # Check for empty results (potential semantic error)
-                if len(result) == 0 and not self._expectsEmpty(question):
-                    print(
-                        f"⚠️  Query returned no results (attempt {attempt + 1})")
-
-                print(f"✅ Validated SQL (attempt {attempt + 1})")
-                return sql
-
-            except Exception as e:
-                print(f"❌ Validation failed (attempt {attempt + 1}): {str(e)}")
-
-                if attempt < maxAttempts - 1:
-                    # Regenerate with error feedback
-                    sql = self._regenerateWithFeedback(question, sql, str(e))
-                else:
-                    print(f"⚠️  Max attempts reached, returning last SQL")
-
-        return sql
-
-    def _regenerateWithFeedback(self, question: str, failedSQL: str, errorMessage: str) -> str:
-        """Regenerate SQL with specific error feedback"""
-        schemaContext = self.buildSchemaContext()
-
-        feedbackPrompt = f"""Your previous SQL query had an error.
-
-ORIGINAL QUESTION: {question}
-
-YOUR SQL: {failedSQL}
-
-ERROR MESSAGE: {errorMessage}
-
-DATABASE SCHEMA:
-{schemaContext}
-
-Analyze the error and generate a CORRECTED SQL query:
-
-1. What caused this error?
-2. What table/column names are actually available?
-3. What is the correct JOIN condition or WHERE clause?
-
-CORRECTED SQL:
-"""
-
-        try:
-            response = self.ollamaClient.chat(
-                model=self.model,
-                messages=[
-                    {'role': 'system',
-                        'content': 'You are an expert at debugging and fixing SQL queries.'},
-                    {'role': 'user', 'content': feedbackPrompt}
-                ]
-            )
-            return self.getSQL(response['message']['content'])
-        except Exception as e:
-            print(f"Regeneration failed: {e}")
-            return failedSQL
-
-    def expectsEmpty(self, question: str) -> bool:
-        """Check if question expects empty results"""
-        emptyKeywords = ['never', 'no ', 'none',
-                         'zero', 'empty', 'without', 'don\'t', 'not']
-        return any(kw in question.lower() for kw in emptyKeywords)
-
     def generate(self, question: str) -> str:
         """
-        Generate SQL query with validation and self-correction.
+        Generate SQL query using Chain-of-Thought reasoning and Few-Shot Learning.
 
-        This is the complete workflow including the critical validation step.
+        This method:
+        1. Retrieves similar examples from the example bank
+        2. Builds rich schema context with sample data
+        3. Constructs a Chain-of-Thought prompt
+        4. Generates SQL using the LLM
+
+        Note: This method only generates SQL. Validation should be done separately.
         """
         print(f"\nGenerating Query for: {question}")
 
@@ -437,11 +371,7 @@ CORRECTED SQL:
             llmResponse = response['message']['content']
             sql = self.getSQL(llmResponse)
 
-            # Step 5: VALIDATE AND CORRECT (CRITICAL!)
-            print("🔍 Validating SQL...")
-            sql = self.validateAndCorrectQuery(sql, question, maxAttempts=3)
-
-            print(f"✅ Final SQL: {sql}...")
+            print(f"✅ Generated SQL: {sql}")
             return sql
 
         except Exception as e:
@@ -449,6 +379,5 @@ CORRECTED SQL:
             raise
 
     def close(self):
-        """Cleanup resources"""
-        if hasattr(self, 'duckdbConn') and self.duckdbConn:
-            self.duckdbConn.close()
+        """Cleanup resources - no persistent connections to close"""
+        pass

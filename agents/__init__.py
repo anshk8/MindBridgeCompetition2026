@@ -6,7 +6,9 @@ This package contains the SQLAgent for generating SQL queries from natural langu
 
 
 from .SQLAgent import SQLAgent
+from .ValidatorAgent import ValidatorAgent
 
 __all__ = [
-    'SQLAgent'
+    'SQLAgent',
+    'ValidatorAgent',
 ]
