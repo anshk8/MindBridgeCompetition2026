@@ -229,13 +229,13 @@ class SQLAgentTester:
             final_sql = self.writer.generate_query(question)
             result['generated_sql'] = final_sql
 
-            # Access the validator results from the writer's internal validator
-            # Note: The QueryWriter already ran validation, so we just need execution check
-            schema_ctx = self.writer.agent.buildSchemaContext()
-            review_info = self.writer.validator.validate(question, final_sql, schema_ctx)
-            result['reviewer_approved'] = review_info['approved']
-            result['reviewer_attempts'] = review_info['attempts']
-            result['reviewer_issues'] = review_info.get('issues', [])
+            # NOTE: QueryWriter.generate_query already runs validation/correction.
+            # To avoid redundant LLM calls and inconsistent reviewer stats, we do
+            # not call self.writer.validator.validate(...) again here. If
+            # reviewer metadata is needed, it should be exposed by QueryWriter.
+            result['reviewer_approved'] = None
+            result['reviewer_attempts'] = 0
+            result['reviewer_issues'] = []
 
             # Validate execution
             validation = self.validate_sql_execution(final_sql)

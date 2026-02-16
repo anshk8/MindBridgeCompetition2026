@@ -109,5 +109,29 @@ def main():
             print(f"\nError: {e}")
 
 
+def testQuery():
+    db_path = 'bike_store.db'
+    results = execute_query('''SELECT c.category_name,
+       SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS category_revenue,
+       (SUM(oi.quantity * oi.list_price * (1 - oi.discount)) / total.total_revenue) * 100 AS percentage_of_total_revenue
+FROM categories c
+JOIN products p ON c.category_id = p.category_id
+JOIN order_items oi ON p.product_id = oi.product_id
+JOIN orders o ON oi.order_id = o.order_id
+CROSS JOIN (
+    SELECT SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue
+    FROM order_items oi
+) AS total
+GROUP BY c.category_name, total.total_revenue
+ORDER BY percentage_of_total_revenue DESC;
+
+ ''', db_path)
+    
+    print("\nTest Query Results:")
+    for row in results:
+        print(row)
+
 if __name__ == "__main__":
     main()
+
+    # testQuery()

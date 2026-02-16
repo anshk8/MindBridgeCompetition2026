@@ -2,7 +2,7 @@
 ValidatorAgent.py - Lightweight SQL Semantic Validator
 
 Reviews generated SQL for correctness:
-1. Syntax validation (via EXPLAIN)
+1. Syntax validation (by attempting to execute the query)
 2. Execution check (runs query, verifies results)
 3. Semantic review (LLM checks if query answers the question)
 
@@ -29,9 +29,9 @@ class ValidatorAgent:
     Will attempt to correct a failing query up to `maxCorrections` times.
     """
 
-    def __init__(self, dbPath: str, model: str = None, maxCorrections: int = 2):
+    def __init__(self, dbPath: str, maxCorrections: int = 2):
         self.dbPath = dbPath
-        self.model = model or os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
+        self.model = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
         self.ollamaClient = ollama.Client(
             host=os.getenv('OLLAMA_HOST', 'http://localhost:11434')
         )
@@ -60,13 +60,13 @@ class ValidatorAgent:
                 'sample_result': str | None
             }
         """
-        attempts = 0
+        correctionsUsed = 0
         currentSQL = sql
         issues: set[str] = set()
         lastExecutedSQL = None
         lastExecResult = None
 
-        while attempts < self.maxCorrections:
+        while True:
             # --- Step 1: Execute (only if SQL changed) ---
             if currentSQL != lastExecutedSQL:
                 lastExecResult = self._executeSQL(currentSQL)
@@ -75,15 +75,18 @@ class ValidatorAgent:
 
             if not execResult['success']:
                 issues.add(f"Execution error: {execResult['error']}")
-                attempts += 1
-                if attempts > self.maxCorrections:
+                
+                # Can we make another correction?
+                if correctionsUsed >= self.maxCorrections:
                     break
+                
                 # Ask LLM to fix
                 corrected = self._correctQuery(
                     question, currentSQL, execResult['error'], schemaContext
                 )
                 if corrected and corrected != currentSQL:
                     currentSQL = corrected
+                    correctionsUsed += 1
                     continue
                 else:
                     break  # LLM couldn't produce a different query
@@ -98,26 +101,25 @@ class ValidatorAgent:
             review = self._semanticReview(question, currentSQL, schemaContext)
 
             if review['approved']:
+                merged_issues = list(issues.union(review.get('issues', [])))
                 return {
                     'approved': True,
                     'sql': currentSQL,
-                    'attempts': attempts,
+                    'attempts': correctionsUsed,
                     'execution_ok': True,
                     'row_count': rowCount,
-                    'issues': review.get('issues', []),
-                    'sample_result': execResult.get('sample_result'),
-                }
+                    'issues': merged_issues}
 
-            # Not approved — try to correct
+            # Not approved — check if we can make another correction
             issues.update(review.get('issues', []))
-            suggestion = review.get('suggestion')
-
-            attempts += 1
-            if attempts > self.maxCorrections:
+            
+            if correctionsUsed >= self.maxCorrections:
                 break
-
+            
+            suggestion = review.get('suggestion')
             if suggestion:
                 currentSQL = suggestion
+                correctionsUsed += 1
             else:
                 # Fall back to generic correction
                 corrected = self._correctQuery(
@@ -127,6 +129,7 @@ class ValidatorAgent:
                 )
                 if corrected and corrected != currentSQL:
                     currentSQL = corrected
+                    correctionsUsed += 1
                 else:
                     break
 
@@ -139,7 +142,7 @@ class ValidatorAgent:
         return {
             'approved': False,
             'sql': currentSQL,
-            'attempts': attempts,
+            'attempts': correctionsUsed,
             'execution_ok': finalExec['success'],
             'row_count': finalExec.get('row_count', 0),
             'issues': list(issues),
@@ -155,11 +158,18 @@ class ValidatorAgent:
         conn = None
         try:
             conn = self._get_connection()
-            result = conn.execute(sql).fetchall()
-            sample = str(result[0])[:100] if result else None
+            
+            # Running only a small sample to check for execution success and get a preview, without fetching all data
+            sample_result = conn.execute(sql).fetchmany(5)
+            sample = str(sample_result[0])[:100] if sample_result else None
+            
+            # Get accurate row count efficiently without fetching all data
+            count_sql = f"SELECT COUNT(*) FROM ({sql}) AS subquery"
+            row_count = conn.execute(count_sql).fetchone()[0]
+            
             return {
                 'success': True,
-                'row_count': len(result),
+                'row_count': row_count,
                 'sample_result': sample,
                 'error': None,
             }
