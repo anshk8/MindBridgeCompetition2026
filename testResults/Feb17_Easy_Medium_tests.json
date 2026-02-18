@@ -1,0 +1,183 @@
+
+[
+  {
+    "test_id": "E1",
+    "question": "List all stores in California",
+    "expected_sql": "SELECT store_name, city, state FROM stores WHERE state = 'CA'",
+    "generated_sql": "SELECT store_name, phone, email, street, city, zip_code FROM stores WHERE state = 'CA'",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 1,
+      "error": null,
+      "sample_result": "('Santa Cruz Bikes', '(831) 476-4321', 'santacruz@bikes.shop', '3700 Portola Drive', 'Santa Cruz', 9"
+    },
+    "reviewer_approved": true,
+    "reviewer_attempts": 0,
+    "reviewer_issues": [],
+    "difficulty": "easy"
+  },
+  {
+    "test_id": "E2",
+    "question": "What is the cheapest product in the database?",
+    "expected_sql": "SELECT product_name, list_price FROM products ORDER BY list_price ASC LIMIT 1",
+    "generated_sql": "SELECT product_name FROM products ORDER BY list_price ASC LIMIT 1",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 1,
+      "error": null,
+      "sample_result": "('Strider Classic 12 Balance Bike - 2018',)"
+    },
+    "reviewer_approved": true,
+    "reviewer_attempts": 0,
+    "reviewer_issues": [],
+    "difficulty": "easy"
+  },
+  {
+    "test_id": "E3",
+    "question": "How many products were made in 2018?",
+    "expected_sql": "SELECT COUNT(*) FROM products WHERE model_year = 2018",
+    "generated_sql": "SELECT COUNT(product_id) FROM products WHERE model_year = 2018",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 1,
+      "error": null,
+      "sample_result": "(204,)"
+    },
+    "reviewer_approved": true,
+    "reviewer_attempts": 0,
+    "reviewer_issues": [],
+    "difficulty": "easy"
+  },
+  {
+    "test_id": "E4",
+    "question": "Show all staff emails",
+    "expected_sql": "SELECT first_name, last_name, email FROM staffs",
+    "generated_sql": "SELECT email FROM staffs",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 10,
+      "error": null,
+      "sample_result": "('fabiola.jackson@bikes.shop',)"
+    },
+    "reviewer_approved": true,
+    "reviewer_attempts": 0,
+    "reviewer_issues": [],
+    "difficulty": "easy"
+  },
+  {
+    "test_id": "E5",
+    "question": "What is the total quantity of all products in stock?",
+    "expected_sql": "SELECT SUM(quantity) FROM stocks",
+    "generated_sql": "SELECT SUM(quantity) AS total_quantity FROM stocks",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 1,
+      "error": null,
+      "sample_result": "(13511,)"
+    },
+    "reviewer_approved": true,
+    "reviewer_attempts": 0,
+    "reviewer_issues": [],
+    "difficulty": "easy"
+  },
+  {
+    "test_id": "M1",
+    "question": "Show all orders placed in January 2017",
+    "expected_sql": "SELECT order_id, customer_id, order_date FROM orders WHERE order_date BETWEEN '2017-01-01' AND '2017-01-31'",
+    "generated_sql": "SELECT order_id, order_date FROM orders WHERE order_date >= '2017-01-01' AND order_date < '2017-02-01'",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 50,
+      "error": null,
+      "sample_result": "(636, datetime.date(2017, 1, 3))"
+    },
+    "reviewer_approved": true,
+    "reviewer_attempts": 0,
+    "reviewer_issues": [],
+    "difficulty": "medium"
+  },
+  {
+    "test_id": "M2",
+    "question": "Which brands have more than 10 products?",
+    "expected_sql": "SELECT b.brand_name, COUNT(p.product_id) as product_count FROM brands b JOIN products p ON b.brand_id = p.brand_id GROUP BY b.brand_name HAVING COUNT(p.product_id) > 10",
+    "generated_sql": "SELECT b.brand_name FROM brands b JOIN products p ON b.brand_id = p.brand_id GROUP BY b.brand_name HAVING COUNT(p.product_id) > 10",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 4,
+      "error": null,
+      "sample_result": "('Trek',)"
+    },
+    "reviewer_approved": true,
+    "reviewer_attempts": 0,
+    "reviewer_issues": [],
+    "difficulty": "medium"
+  },
+  {
+    "test_id": "M3",
+    "question": "List all staff members and their store names",
+    "expected_sql": "SELECT s.first_name, s.last_name, st.store_name FROM staffs s JOIN stores st ON s.store_id = st.store_id",
+    "generated_sql": "SELECT s.first_name, s.last_name, st.store_name FROM staffs s INNER JOIN stores st ON s.store_id = st.store_id ORDER BY s.first_name, s.last_name",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 10,
+      "error": null,
+      "sample_result": "('Bernardine', 'Houston', 'Rowlett Bikes')"
+    },
+    "reviewer_approved": true,
+    "reviewer_attempts": 0,
+    "reviewer_issues": [],
+    "difficulty": "medium"
+  },
+  {
+    "test_id": "M4",
+    "question": "Find products priced between 1000 and 2000 dollars",
+    "expected_sql": "SELECT product_name, brand_id, list_price FROM products WHERE list_price BETWEEN 1000 AND 2000",
+    "generated_sql": "SELECT product_name FROM products WHERE list_price BETWEEN 1000 AND 2000",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 39,
+      "error": null,
+      "sample_result": "('Heller Shagamaw Frame - 2016',)"
+    },
+    "reviewer_approved": true,
+    "reviewer_attempts": 0,
+    "reviewer_issues": [],
+    "difficulty": "medium"
+  },
+  {
+    "test_id": "M5",
+    "question": "How many orders has each customer placed?",
+    "expected_sql": "SELECT c.first_name, c.last_name, COUNT(o.order_id) as order_count FROM customers c LEFT JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id, c.first_name, c.last_name",
+    "generated_sql": "SELECT c.customer_id, c.first_name, c.last_name, COUNT(o.order_id) AS order_count FROM customers c LEFT JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id, c.first_name, c.last_name",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 1445,
+      "error": null,
+      "sample_result": "(6, 'Lyndsey', 'Bean', 3)"
+    },
+    "reviewer_approved": true,
+    "reviewer_attempts": 0,
+    "reviewer_issues": [],
+    "difficulty": "medium"
+  }
+]
