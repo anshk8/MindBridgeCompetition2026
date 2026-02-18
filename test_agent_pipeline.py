@@ -55,7 +55,7 @@ TEST_QUERIES = {
         {
             "id": "M1",
             "question": "Show all orders placed in January 2017",
-            "expected_sql": "SELECT order_id, customer_id, order_date FROM orders WHERE order_date BETWEEN '2017-01-01' AND '2017-01-31'",
+            "expected_sql": "SELECT order_id, order_date FROM orders WHERE order_date BETWEEN '2017-01-01' AND '2017-01-31'",
             "notes": "Date range filtering with BETWEEN"
         },
         {
@@ -116,6 +116,7 @@ TEST_QUERIES = {
             "notes": "Multi-table JOIN with subquery for percentage calculation"
         }
     ],
+
     "hard_advanced": [
     {
         "id": "H6",
@@ -229,13 +230,12 @@ class SQLAgentTester:
             final_sql = self.writer.generate_query(question)
             result['generated_sql'] = final_sql
 
-            # NOTE: QueryWriter.generate_query already runs validation/correction.
-            # To avoid redundant LLM calls and inconsistent reviewer stats, we do
-            # not call self.writer.validator.validate(...) again here. If
-            # reviewer metadata is needed, it should be exposed by QueryWriter.
-            result['reviewer_approved'] = None
-            result['reviewer_attempts'] = 0
-            result['reviewer_issues'] = []
+            # Read approval metadata stored as a side-effect during generate_query()
+            # No extra LLM calls — this is the exact same validation result from the pipeline
+            v = getattr(self.writer, '_last_validation', None)
+            result['reviewer_approved'] = v.get('approved') if v else None
+            result['reviewer_attempts'] = v.get('semantic_fixes', 0) if v else 0
+            result['reviewer_issues'] = v.get('issues', []) if v else []
 
             # Validate execution
             validation = self.validate_sql_execution(final_sql)
@@ -295,7 +295,13 @@ class SQLAgentTester:
                 
                 if result['success']:
                     validation = result['validation']
-                    approved_tag = ' (Reviewer: APPROVED)' if result.get('reviewer_approved') else ' (Reviewer: NOT APPROVED)'
+                    ra = result.get('reviewer_approved')
+                    if ra is True:
+                        approved_tag = ' (Reviewer: APPROVED)'
+                    elif ra is False:
+                        approved_tag = ' (Reviewer: NOT APPROVED)'
+                    else:
+                        approved_tag = ''
                     print(f"\n\u2705 Status: SUCCESS{approved_tag}")
                     print(f"   Returned {validation['row_count']} rows")
                     if result.get('reviewer_attempts', 0) > 0:
@@ -406,8 +412,7 @@ def main():
     print("  - Row counts and sample results")
     print("  - Detailed error messages for failures")
     print("="*80 + "\n")
-    
-    input("Press ENTER to start testing...")
+
     
     tester = SQLAgentTester()
     
