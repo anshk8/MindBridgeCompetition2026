@@ -1,0 +1,183 @@
+[
+  {
+    "test_id": "A1",
+    "question": "Show me the best products",
+    "expected_sql": "SELECT product_name, list_price FROM products ORDER BY list_price DESC LIMIT 10",
+    "generated_sql": "SELECT product_name, list_price FROM products ORDER BY list_price DESC LIMIT 5",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 5,
+      "error": null,
+      "sample_result": "('Trek Domane SLR 9 Disc - 2018', 11999.99)"
+    },
+    "reviewer_approved": true,
+    "reviewer_attempts": 0,
+    "reviewer_issues": [],
+    "difficulty": "ambiguous"
+  },
+  {
+    "test_id": "A2",
+    "question": "Which customers are VIP?",
+    "expected_sql": "SELECT c.first_name, c.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name ORDER BY total_spent DESC LIMIT 20",
+    "generated_sql": "SELECT 1",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 1,
+      "error": null,
+      "sample_result": "(1,)"
+    },
+    "reviewer_approved": false,
+    "reviewer_attempts": 0,
+    "reviewer_issues": [
+      "Exec error (attempt 0): 'NoneType' object has no attribute 'fetchmany'"
+    ],
+    "difficulty": "ambiguous"
+  },
+  {
+    "test_id": "A3",
+    "question": "What are the popular items?",
+    "expected_sql": "SELECT p.product_name, COUNT(oi.order_id) AS times_ordered FROM products p JOIN order_items oi ON p.product_id = oi.product_id GROUP BY p.product_id, p.product_name ORDER BY times_ordered DESC LIMIT 10",
+    "generated_sql": "SELECT oi.product_id, SUM(oi.quantity) AS total_quantity FROM orders o JOIN order_items oi ON o.order_id = oi.order_id GROUP BY oi.product_id ORDER BY total_quantity DESC",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 307,
+      "error": null,
+      "sample_result": "(6, 167)"
+    },
+    "reviewer_approved": true,
+    "reviewer_attempts": 0,
+    "reviewer_issues": [],
+    "difficulty": "ambiguous"
+  },
+  {
+    "test_id": "A4",
+    "question": "Are sales going up or down?",
+    "expected_sql": "SELECT YEAR(o.order_date) AS year, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS annual_revenue FROM orders o JOIN order_items oi ON o.order_id = oi.order_id GROUP BY YEAR(o.order_date) ORDER BY year",
+    "generated_sql": "SELECT EXTRACT(YEAR FROM o.order_date) AS order_year, EXTRACT(MONTH FROM o.order_date) AS order_month, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM orders o JOIN order_items oi ON o.order_id = oi.order_id GROUP BY EXTRACT(YEAR FROM o.order_date), EXTRACT(MONTH FROM o.order_date) ORDER BY order_year, order_month",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 35,
+      "error": null,
+      "sample_result": "(2016, 1, 215146.42409999995)"
+    },
+    "reviewer_approved": true,
+    "reviewer_attempts": 0,
+    "reviewer_issues": [],
+    "difficulty": "ambiguous"
+  },
+  {
+    "test_id": "N1",
+    "question": "What is the PS5 column in the Sun?",
+    "expected_sql": "SELECT 1",
+    "generated_sql": "SELECT 1",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 1,
+      "error": null,
+      "sample_result": "(1,)"
+    },
+    "reviewer_approved": false,
+    "reviewer_attempts": 0,
+    "reviewer_issues": [
+      "Exec error (attempt 0): 'NoneType' object has no attribute 'fetchmany'"
+    ],
+    "difficulty": "nonsense"
+  },
+  {
+    "test_id": "N2",
+    "question": "Show me the weather forecast for the Santa Cruz store",
+    "expected_sql": "SELECT 1",
+    "generated_sql": "SELECT store_name FROM stores WHERE store_name = 'Santa Cruz Bikes'",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 1,
+      "error": null,
+      "sample_result": "('Santa Cruz Bikes',)"
+    },
+    "reviewer_approved": false,
+    "reviewer_attempts": 0,
+    "reviewer_issues": [
+      "Exec error (attempt 0): 'NoneType' object has no attribute 'fetchmany'",
+      "Exec error (attempt 1): Binder Error: Referenced column \"weather_forecast\" not found in FROM clause!\nCandidate bindings: \"stores.store_name\", \"stores.street\", \"stores.store_id\", \"stores.email\"\nLINE 1: SELECT store_name, weather_forecast FROM stores WHERE stor...\n                           ^",
+      "The generated SQL query does not answer the user's question. It only retrieves the store name 'Santa Cruz Bikes' without providing any weather forecast information."
+    ],
+    "difficulty": "nonsense"
+  },
+  {
+    "test_id": "N3",
+    "question": "Which customers have a loyalty score above 100?",
+    "expected_sql": "SELECT 1",
+    "generated_sql": "SELECT c.first_name, c.last_name FROM customers c WHERE EXISTS (SELECT 1 FROM orders o JOIN order_items oi ON o.order_id = oi.order_id WHERE o.customer_id = c.customer_id AND oi.quantity * oi.list_price * (1 - oi.discount) > 100)",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 1445,
+      "error": null,
+      "sample_result": "('Deshawn', 'Mendoza')"
+    },
+    "reviewer_approved": true,
+    "reviewer_attempts": 1,
+    "reviewer_issues": [
+      "Exec error (attempt 0): 'NoneType' object has no attribute 'fetchmany'",
+      "The query attempts to calculate a 'loyalty score' using the order_items table, but there is no column named 'loyalty_score' in the provided schema.",
+      "The condition `o.order_status > 4` does not necessarily represent customers with a loyalty score above 100. This condition seems unrelated to the calculation of a loyalty score."
+    ],
+    "difficulty": "nonsense"
+  },
+  {
+    "test_id": "N4",
+    "question": "What is the profit margin for each product?",
+    "expected_sql": "SELECT product_name, list_price FROM products ORDER BY list_price DESC",
+    "generated_sql": "SELECT p.product_name, ((SUM(oi.quantity * oi.list_price) - SUM(oi.quantity * (oi.list_price * oi.discount))) / SUM(oi.quantity * oi.list_price)) AS profit_margin FROM products p JOIN order_items oi ON p.product_id = oi.product_id GROUP BY p.product_name",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 278,
+      "error": null,
+      "sample_result": "('Trek Remedy 29 Carbon Frameset - 2016', 0.90392)"
+    },
+    "reviewer_approved": true,
+    "reviewer_attempts": 1,
+    "reviewer_issues": [
+      "The calculation for profit_margin is incorrect. It subtracts the same value twice, resulting in zero.",
+      "The query does not account for discounts applied to each item."
+    ],
+    "difficulty": "nonsense"
+  },
+  {
+    "test_id": "N5",
+    "question": "How many returned orders are there?",
+    "expected_sql": "SELECT 1",
+    "generated_sql": "SELECT COUNT(*) FROM orders WHERE order_status = 2",
+    "success": true,
+    "error": null,
+    "validation": {
+      "executes": true,
+      "row_count": 1,
+      "error": null,
+      "sample_result": "(63,)"
+    },
+    "reviewer_approved": false,
+    "reviewer_attempts": 2,
+    "reviewer_issues": [
+      "The query is using an incorrect condition for returned orders. The order_status = 4 does not match the typical representation of a returned order in the schema.",
+      "The query uses order_status = 3, but the correct value for returned orders should be order_status = 2 based on typical order status codes.",
+      "The query uses 'order_status = 2' to filter returned orders, but the provided schema does not specify what '2' represents in terms of order statuses. The question asks for returned orders, so the correct status code should be used."
+    ],
+    "difficulty": "nonsense"
+  }
+]

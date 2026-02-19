@@ -14,6 +14,7 @@ from typing import Dict, Any
 from datetime import datetime
 
 from agent import QueryWriter
+from queriesToTest import EXTENDED_QUERIES
 
 # ==================== NEW TEST QUERIES (NOT IN FEW-SHOT EXAMPLES) ====================
 
@@ -252,7 +253,7 @@ class SQLAgentTester:
         
         return result
     
-    def run_test_suite(self, difficulties: list = None):
+    def run_test_suite(self, difficulties: list = None, query_bank: dict = None):
         """
         Run complete test suite.
         
@@ -261,13 +262,15 @@ class SQLAgentTester:
         """
         if difficulties is None:
             difficulties = ['easy', 'medium', 'hard']
+        if query_bank is None:
+            query_bank = TEST_QUERIES
         
         all_results = []
         
         print("\n" + "="*80)
         print("🧪 QUERYWRITER COMPREHENSIVE TEST SUITE")
         print("="*80)
-        print(f"Testing {sum(len(TEST_QUERIES[d]) for d in difficulties)} queries")
+        print(f"Testing {sum(len(query_bank.get(d, [])) for d in difficulties)} queries")
         print(f"Difficulties: {', '.join(difficulties)}")
         print("="*80)
         print("\n⚠️  NOTE: These are NEW queries not in the few-shot examples")
@@ -275,7 +278,7 @@ class SQLAgentTester:
         print("="*80)
         
         for difficulty in difficulties:
-            queries = TEST_QUERIES.get(difficulty, [])
+            queries = query_bank.get(difficulty, [])
             
             print(f"\n\n{'🟢 EASY' if difficulty == 'easy' else '🟡 MEDIUM' if difficulty == 'medium' else '🔴 HARD'} QUERIES")
             print("="*80)
@@ -418,7 +421,7 @@ def main():
     
     try:
         # Run all tests (all difficulties now that medium is active)
-        results = tester.run_test_suite(difficulties=['hard', 'hard_advanced'])
+        results = tester.run_test_suite(difficulties=['ambiguous', 'nonsense'], query_bank=EXTENDED_QUERIES)
         
         print("\n✅ Testing complete!")
         print("\n💡 Tips for improvement if accuracy is low:")
