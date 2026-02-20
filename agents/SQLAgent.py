@@ -6,13 +6,14 @@ to generate accurate SQL queries from natural language.
 """
 
 import os
-import re
-import duckdb
 import numpy as np
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import ollama
 from sentence_transformers import SentenceTransformer
+from utils.helpers import loadSchema, buildSchemaContext
+from utils.prompts import buildSystemPrompt, buildUserPrompt, buildFewShotContext
+from schemas.SQLAgentSchemas import SQLResult
 
 
 # Format of the few-shot examples that will help the LLM
@@ -34,67 +35,14 @@ class SQLAgent:
         # Store DB path but don't keep connection open
         self.dbPath = dbPath
 
-        # Load schema with temporary connection
-        self.schemaInfo = self.loadSchema()
+        # Load schema using helper function
+        self.schemaInfo = loadSchema(dbPath)
 
         # Initialize embedder and examples
         self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
         self.exampleBank = self.setupFewShotExamples()
 
         print(f"✅ SQL Agent initialized with {len(self.exampleBank)} examples")
-    
-    def _get_connection(self):
-        """Get a temporary database connection"""
-        return duckdb.connect(self.dbPath)
-
-
-    def loadSchema(self) -> Dict[str, Any]:
-        """Load schema using DuckDB with temporary connection"""
-        schemaWithSamples = {}
-
-        conn = None
-        try:
-            # Use temporary connection
-            conn = self._get_connection()
-            
-            # Get all table names
-            tables = conn.execute("SHOW TABLES").fetchall()
-            tableNames = [table[0] for table in tables]
-
-            for tableName in tableNames:
-                # Get column information
-                columns = conn.execute(
-                    f"DESCRIBE {tableName}").fetchall()
-
-                columnInfo = []
-                for col in columns:
-                    columnInfo.append({
-                        'name': col[0],
-                        'type': col[1],
-                        'null': col[2] if len(col) > 2 else None
-                    })
-
-                # Get sample data
-                cursor = conn.execute(
-                    f"SELECT * FROM {tableName} LIMIT 3"
-                )
-                rows = cursor.fetchall()
-                col_names = [desc[0] for desc in cursor.description]
-                samples = [dict(zip(col_names, row)) for row in rows]
-
-                schemaWithSamples[tableName] = {
-                    'columns': columnInfo,
-                    'samples': samples
-                }
-
-            return schemaWithSamples
-
-        except Exception as e:
-            print(f"Error loading schema: {e}")
-            return {}
-        finally:
-            if conn:
-                conn.close()
 
     def setupFewShotExamples(self) -> List[FewShotExample]:
         examples = [
@@ -205,125 +153,6 @@ class SQLAgent:
         similarities.sort(key=lambda x: x[0], reverse=True)
         return [ex for _, ex in similarities[:topK]]
 
-    def buildSchemaContext(self) -> str:
-        """Build rich schema context with sample data"""
-        contextParts = []
-
-        for tableName, tableData in self.schemaInfo.items():
-            contextParts.append(f"\nTable: {tableName}")
-            contextParts.append("Columns:")
-
-            for col in tableData['columns']:
-                colType = col.get('type', 'UNKNOWN')
-                contextParts.append(f"  - {col['name']} ({colType})")
-
-            if tableData['samples']:
-                contextParts.append("\nSample rows:")
-                colNames = [col['name'] for col in tableData['columns']]
-                contextParts.append("  | " + " | ".join(colNames) + " |")
-
-                for row in tableData['samples']:
-                    rowValues = [str(row.get(col, 'NULL'))[:30]
-                                 for col in colNames]
-                    contextParts.append("  | " + " | ".join(rowValues) + " |")
-
-        # print("\n".join(contextParts))
-        return "\n".join(contextParts)
-
-    def _buildFewShotContext(self, examples: List[FewShotExample]) -> str:
-        """Build few-shot examples context for prompt"""
-        exampleParts = []
-
-        for i, ex in enumerate(examples, 1):
-            exampleParts.append(f"Example {i}:")
-            exampleParts.append(f"Question: {ex.question}")
-            exampleParts.append(f"SQL: {ex.sql}")
-            if ex.explanation:
-                exampleParts.append(f"Explanation: {ex.explanation}")
-            exampleParts.append("")
-
-        return "\n".join(exampleParts)
-
-    def buildCoTPrompt(self, question: str, schemaContext: str, fewShotContext: str) -> str:
-        """Build Chain-of-Thought prompt that forces step-by-step reasoning"""
-
-        prompt = f"""You are an expert SQL query generator. Given a natural language question about a database, generate a syntactically and semantically correct SQL query.
-
-DATABASE SCHEMA:
-{schemaContext}
-
-SIMILAR EXAMPLES FOR REFERENCE:
-{fewShotContext}
-
-USER QUESTION: {question}
-
-CRITICAL INSTRUCTIONS:
-- ONLY use columns that exist in the schema above
-- The orders table does NOT have pre-calculated total columns
-- To calculate order totals, you MUST join to order_items and compute: quantity * list_price * (1 - discount)
-- Never invent columns like "total_amount", "order_total", or "total_price"
-
-Think through this step-by-step using Chain-of-Thought reasoning. Break down the problem before writing SQL.
-
-Step 1: What tables are needed?
-Step 2: What columns should be selected?
-Step 3: Are any JOINs needed? If yes, what are the JOIN conditions?
-Step 4: Are any WHERE filters needed? If yes, what conditions?
-Step 5: Are any aggregations needed (COUNT, SUM, AVG, etc.)?
-Step 6: Is GROUP BY needed? If yes, which columns?
-Step 7: Is sorting needed (ORDER BY)? If yes, which columns and direction?
-Step 8: Is a LIMIT needed?
-
-Now, generate the SQL query:
-
-SQL:
-"""
-        return prompt
-
-    def getSQL(self, llmResponse: str) -> str:
-        """Extract SQL query from LLM response and normalize formatting"""
-        sql = None
-
-        # Try to find SQL after "SQL:" marker
-        sqlMatch = re.search(r'SQL:\s*```(?:sql)?\s*(.*?)\s*```',
-                             llmResponse, re.DOTALL | re.IGNORECASE)
-        if sqlMatch:
-            sql = sqlMatch.group(1).strip()
-
-        # Try to find any code block
-        if not sql:
-            sqlMatch = re.search(
-                r'```(?:sql)?\s*(.*?)\s*```', llmResponse, re.DOTALL)
-            if sqlMatch:
-                sql = sqlMatch.group(1).strip()
-
-        # Try to find SELECT statement
-        if not sql:
-            sqlMatch = re.search(r'(SELECT\s+.+?)(?:\n\n|$)',
-                                 llmResponse, re.DOTALL | re.IGNORECASE)
-            if sqlMatch:
-                sql = sqlMatch.group(1).strip()
-
-        # Fallback: return last line if it looks like SQL
-        if not sql:
-            lines = llmResponse.strip().split('\n')
-            for line in reversed(lines):
-                if line.strip().upper().startswith('SELECT'):
-                    sql = line.strip()
-                    break
-
-        # If still no SQL found, return the response as-is
-        if not sql:
-            sql = llmResponse.strip()
-
-        # Normalize SQL: replace multiple spaces/newlines with single space
-        sql = re.sub(r'\s+', ' ', sql)
-
-        # Remove trailing semicolon if present
-        sql = sql.rstrip(';')
-
-        return sql
-
     def generate(self, question: str) -> str:
         """
         Generate SQL query using Chain-of-Thought reasoning and Few-Shot Learning.
@@ -344,12 +173,12 @@ SQL:
 
         # Step 2: Build contexts
         print("🏗️  Building prompt contexts...")
-        schemaContext = self.buildSchemaContext()
-        fewShotContext = self._buildFewShotContext(similarExamples)
+        schemaContext = buildSchemaContext(self.schemaInfo)
+        fewShotContext = buildFewShotContext(similarExamples)
 
-        # Step 3: Build CoT prompt
-        cotPrompt = self.buildCoTPrompt(
-            question, schemaContext, fewShotContext)
+        # Step 3: Build system and user prompts
+        systemPrompt = buildSystemPrompt()
+        userPrompt = buildUserPrompt(question, schemaContext, fewShotContext)
 
         # Step 4: Generate initial SQL
         print(f"🤖 Generating SQL with {self.model}...")
@@ -359,17 +188,19 @@ SQL:
                 messages=[
                     {
                         'role': 'system',
-                        'content': 'You are an expert SQL query generator. Follow Chain-of-Thought reasoning.'
+                        'content': systemPrompt
                     },
                     {
                         'role': 'user',
-                        'content': cotPrompt
+                        'content': userPrompt
                     }
-                ]
+                ],
+                format=SQLResult.model_json_schema()
             )
 
-            llmResponse = response['message']['content']
-            sql = self.getSQL(llmResponse)
+            result = SQLResult.model_validate_json(response['message']['content'])
+            print(f"💭 Reasoning: {result.reasoning}")
+            sql = result.sql.rstrip(';')
 
             print(f"✅ Generated SQL: {sql}")
             return sql
@@ -378,6 +209,3 @@ SQL:
             print(f"❌ Error generating SQL: {e}")
             raise
 
-    def close(self):
-        """Cleanup resources - no persistent connections to close"""
-        pass

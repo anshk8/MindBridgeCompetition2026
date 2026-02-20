@@ -1,304 +1,255 @@
 """
-ValidatorAgent.py - Lightweight SQL Semantic Validator
+ValidatorAgent.py - SQL Validation Pipeline
 
-Reviews generated SQL for correctness:
-1. Syntax validation (by attempting to execute the query)
-2. Execution check (runs query, verifies results)
-3. Semantic review (LLM checks if query answers the question)
+Phase 1: Execution correction  (max 2 LLM fix attempts)
+Phase 2: Semantic review        (max 2 LLM review+fix attempts)
 
-Max 2 correction attempts to avoid indefinite loops.
+Flow:
+    execute → [fix loop max 2] → semantic review → [fix loop max 2] → return
 """
 
 import os
-import re
-import duckdb
 import ollama
 from typing import Dict, Any, Optional
-from utils.helpers import expectsEmpty
+from utils.helpers import executeSQL
+from utils.prompts import (
+    buildSemanticReviewPrompt,
+    buildCorrectionPrompt,
+    buildReviewerSystemPrompt,
+    buildFixerSystemPrompt,
+)
+from schemas.ValidatorAgentSchemas import ReviewResult, FixResult
 
 
 class ValidatorAgent:
-    """
-    Lightweight reviewer that validates and optionally corrects SQL queries.
 
-    Checks:
-    - SQL executes without errors
-    - Results are non-empty (when expected)
-    - Semantic correctness via LLM review
+    #Constants for max attempts in each phase
+    MAX_EXEC_FIXES     = 2   # max LLM calls to fix execution errors
+    MAX_SEMANTIC_FIXES = 2   # max LLM review+fix cycles
 
-    Will attempt to correct a failing query up to `maxCorrections` times.
-    """
-
-    def __init__(self, dbPath: str, maxCorrections: int = 2):
+    def __init__(self, dbPath: str):
         self.dbPath = dbPath
-        self.model = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
+        self.model  = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
         self.ollamaClient = ollama.Client(
             host=os.getenv('OLLAMA_HOST', 'http://localhost:11434')
         )
-        self.maxCorrections = maxCorrections
-    
-    def _get_connection(self):
-        """Get a temporary database connection"""
-        return duckdb.connect(self.dbPath)
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
-    def validate(self, question: str, sql: str, schemaContext: str) -> Dict[str, Any]:
+    def validateSQL(self, question: str, sql: str, schemaContext: str) -> Dict[str, Any]:
         """
-        Full validation pipeline.
+        Two-phase validation pipeline.
+
+        Phase 1 — Execution:
+            Try to execute SQL. If it fails, ask LLM to fix it.
+            Repeat at most MAX_EXEC_FIXES times.
+            If still failing → return failure result immediately.
+
+        Phase 2 — Semantic review:
+            SQL executes. Ask LLM if it correctly answers the question.
+            If rejected, ask LLM for a corrected version and re-execute.
+            Repeat at most MAX_SEMANTIC_FIXES times.
 
         Returns:
-            {
-                'approved': bool,
-                'sql': str,              # final (possibly corrected) SQL
-                'attempts': int,         # number of correction rounds used
-                'execution_ok': bool,
-                'row_count': int,
-                'issues': list[str],
-                'sample_result': str | None
-            }
+            approved        bool   — True only if semantic review passed
+            sql             str    — final SQL (possibly corrected)
+            exec_fixes      int    — how many execution fixes were needed
+            semantic_fixes  int    — how many semantic fixes were needed
+            execution_ok    bool   — does final SQL execute?
+            row_count       int    — rows returned by final SQL
+            sample_result   str    — first row as string (or None)
+            issues          list   — collected warnings / errors
         """
-        correctionsUsed = 0
-        currentSQL = sql
-        issues: set[str] = set()
-        lastExecutedSQL = None
-        lastExecResult = None
+        issues: list[str] = []
 
-        while True:
-            # --- Step 1: Execute (only if SQL changed) ---
-            if currentSQL != lastExecutedSQL:
-                lastExecResult = self._executeSQL(currentSQL)
-                lastExecutedSQL = currentSQL
-            execResult = lastExecResult
+        # ── Phase 1: Get the SQL to execute ──────────────────────────── #
+        sql, exec_fixes, exec_result = self.verifyExecution(
+            question, sql, schemaContext, issues
+        )
 
-            if not execResult['success']:
-                issues.add(f"Execution error: {execResult['error']}")
-                
-                # Can we make another correction?
-                if correctionsUsed >= self.maxCorrections:
-                    break
-                
-                # Ask LLM to fix
-                corrected = self._correctQuery(
-                    question, currentSQL, execResult['error'], schemaContext
-                )
-                if corrected and corrected != currentSQL:
-                    currentSQL = corrected
-                    correctionsUsed += 1
-                    continue
-                else:
-                    break  # LLM couldn't produce a different query
+        if not exec_result['success']:
+            # Still broken after all fixes — give up
+            return self.returnFailedFallback(sql, exec_fixes, 0, exec_result, issues)
 
-            # --- Step 2: Quick sanity checks ---
-            rowCount = execResult['row_count']
-            if rowCount == 0 and not expectsEmpty(question):
-                issues.add("Query returned 0 rows (expected results)")
-                # Don't burn a correction round for this — it may still be correct
+        # ── Phase 2: Semantic review ──────────────────────────────────── #
+        sql, semantic_fixes, approved, exec_result = self.reviewSqlOutput(
+            question, sql, schemaContext, exec_result, issues
+        )
 
-            # --- Step 3: Semantic review via LLM ---
-            review = self._semanticReview(question, currentSQL, schemaContext)
-
-            if review['approved']:
-                merged_issues = list(issues.union(review.get('issues', [])))
-                return {
-                    'approved': True,
-                    'sql': currentSQL,
-                    'attempts': correctionsUsed,
-                    'execution_ok': True,
-                    'row_count': rowCount,
-                    'issues': merged_issues}
-
-            # Not approved — check if we can make another correction
-            issues.update(review.get('issues', []))
-            
-            if correctionsUsed >= self.maxCorrections:
-                break
-            
-            suggestion = review.get('suggestion')
-            if suggestion:
-                currentSQL = suggestion
-                correctionsUsed += 1
-            else:
-                # Fall back to generic correction
-                corrected = self._correctQuery(
-                    question, currentSQL,
-                    "; ".join(review.get('issues', ['Semantic issues detected'])),
-                    schemaContext,
-                )
-                if corrected and corrected != currentSQL:
-                    currentSQL = corrected
-                    correctionsUsed += 1
-                else:
-                    break
-
-        # Exhausted attempts — return best effort (reuse last execution if available)
-        if currentSQL == lastExecutedSQL and lastExecResult:
-            finalExec = lastExecResult
-        else:
-            finalExec = self._executeSQL(currentSQL)
-        
         return {
-            'approved': False,
-            'sql': currentSQL,
-            'attempts': correctionsUsed,
-            'execution_ok': finalExec['success'],
-            'row_count': finalExec.get('row_count', 0),
-            'issues': list(issues),
-            'sample_result': finalExec.get('sample_result'),
+            'approved':       approved,
+            'sql':            sql,
+            'exec_fixes':     exec_fixes,
+            'semantic_fixes': semantic_fixes,
+            'execution_ok':   exec_result['success'],
+            'row_count':      exec_result.get('row_count', 0),
+            'sample_result':  exec_result.get('sample_result'),
+            'issues':         issues,
         }
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------ #
+    # Phase 1 — Execution                                                 #
+    # ------------------------------------------------------------------ #
 
-    def _executeSQL(self, sql: str) -> Dict[str, Any]:
-        """Try running the SQL and return execution metadata."""
-        conn = None
-        try:
-            conn = self._get_connection()
-            
-            # Running only a small sample to check for execution success and get a preview, without fetching all data
-            sample_result = conn.execute(sql).fetchmany(5)
-            sample = str(sample_result[0])[:100] if sample_result else None
-            
-            # Get accurate row count efficiently without fetching all data
-            count_sql = f"SELECT COUNT(*) FROM ({sql}) AS subquery"
-            row_count = conn.execute(count_sql).fetchone()[0]
-            
-            return {
-                'success': True,
-                'row_count': row_count,
-                'sample_result': sample,
-                'error': None,
-            }
-        except Exception as e:
-            return {
-                'success': False,
-                'row_count': 0,
-                'sample_result': None,
-                'error': str(e),
-            }
-        finally:
-            if conn:
-                conn.close()
+    def verifyExecution(
+        self,
+        question: str,
+        sql: str,
+        schemaContext: str,
+        issues: list,
+    ):
+        """
+        Try to execute SQL; fix with LLM on failure.
+        Returns (final_sql, fixes_used, last_exec_result).
+        """
 
-    def _semanticReview(self, question: str, sql: str, schemaContext: str) -> Dict[str, Any]:
-        """Ask the LLM whether the SQL semantically answers the question."""
-        prompt = f"""You are a senior database administrator reviewing SQL queries.
+        attempt = 0
+        while attempt <= self.MAX_EXEC_FIXES:  # ✅ Changed < to <= so we try the last fix
+            result = executeSQL(self.dbPath, sql)
 
-DATABASE SCHEMA:
-{schemaContext}
+            if result['success']:
+                if attempt > 0:
+                    print(f"✅ Execution fix succeeded after {attempt} fix(es)")
+                return sql, attempt, result
 
-USER QUESTION: {question}
+            # Execution failed
+            error_msg = result['error']
+            issues.append(f"Exec error (attempt {attempt}): {error_msg}")
+            print(f"❌ Execution failed (attempt {attempt}): {error_msg}")
 
-GENERATED SQL: {sql}
+            # Check if we can still fix
+            if attempt >= self.MAX_EXEC_FIXES:
+                break  # No more fixes allowed
 
-Review this SQL for semantic correctness. Check:
-1. Are the correct tables being queried for this question?
-2. Do ALL referenced columns actually exist in the schema above?
-3. Are JOIN conditions using the correct foreign keys?
-4. Are calculations and derived values correct and consistent with the schema and question?
-5. Does the query actually answer the user's question?
+            # Ask LLM to fix it
+            fixed = self.fixSQL(question, sql, error_msg, schemaContext)
+            if not fixed or fixed == sql:
+                print("⚠️  LLM could not produce a different SQL — stopping exec fixes")
+                break
+            sql = fixed
 
-Common mistakes to watch for:
-- Using columns that do not exist in the provided schema
-- Forgetting to compute derived totals or aggregates from base numeric columns
-- Wrong JOIN conditions or missing JOINs
-- Incorrect GROUP BY columns
+            attempt += 1
 
-Respond EXACTLY in this format (no extra text):
-VERDICT: APPROVED or REJECTED
-ISSUES: <comma-separated list of problems, or "None">
-CORRECTED_SQL: <corrected SQL if rejected, or "None">
-"""
+        return sql, attempt, result
+
+    # ------------------------------------------------------------------ #
+    # Phase 2 — Semantic Review                                           #
+    # ------------------------------------------------------------------ #
+
+    def reviewSqlOutput(
+        self,
+        question: str,
+        sql: str,
+        schemaContext: str,
+        exec_result: Dict,
+        issues: list,
+    ):
+        """
+        Review SQL semantics; fix and re-execute if rejected.
+        Returns (final_sql, fixes_used, approved, last_exec_result).
+        """
+        for attempt in range(self.MAX_SEMANTIC_FIXES + 1):  
+            review = self.semanticReview(question, sql, schemaContext)
+
+            if review['approved']:
+                print(f"✅ Semantic review approved (attempt {attempt})")
+                return sql, attempt, True, exec_result
+
+            # Rejected
+            issues.extend(review.get('issues', []))
+            print(f"⚠️  Semantic review rejected (attempt {attempt}): {review.get('issues')}")
+
+            if attempt == self.MAX_SEMANTIC_FIXES:
+                break  # No more fixes allowed
+
+            # Get corrected SQL — prefer reviewer's suggestion, else ask LLM
+            fixed = review.get('suggestion') or self.fixSQL(
+                question, sql,
+                "; ".join(review.get('issues', ['Semantic issues'])),
+                schemaContext,
+            )
+
+            if not fixed or fixed == sql:
+                print("⚠️  No new SQL from semantic fix — stopping")
+                break
+
+            # Re-execute the new SQL before next review
+            new_result = executeSQL(self.dbPath, fixed)
+            if not new_result['success']:
+                issues.append(f"Semantic fix failed execution: {new_result['error']}")
+                print(f"❌ Semantic fix broke execution — reverting")
+                break  # Don't use a broken fix
+
+            sql = fixed
+            exec_result = new_result
+
+        return sql, attempt, False, exec_result
+
+    # ------------------------------------------------------------------ #
+    # LLM helpers                                                         #
+    # ------------------------------------------------------------------ #
+
+    def semanticReview(self, question: str, sql: str, schemaContext: str) -> Dict[str, Any]:
+        """Ask LLM if SQL correctly answers the question."""
+        prompt = buildSemanticReviewPrompt(question, sql, schemaContext)
         try:
             response = self.ollamaClient.chat(
                 model=self.model,
+                format=ReviewResult.model_json_schema(),
                 messages=[
-                    {'role': 'system', 'content': 'You are an expert SQL reviewer. Be concise.'},
-                    {'role': 'user', 'content': prompt},
+                    {'role': 'system', 'content': buildReviewerSystemPrompt()},
+                    {'role': 'user',   'content': prompt},
                 ],
             )
-            return self._parseReview(response['message']['content'])
+            result = ReviewResult.model_validate_json(response['message']['content'])
+            suggestion = None
+            if result.corrected_sql:
+                suggestion = result.corrected_sql.rstrip(';')
+            return {'approved': result.approved, 'issues': result.issues, 'suggestion': suggestion}
         except Exception as e:
-            print(f"⚠️  Semantic review failed: {e}")
-            return {'approved': False, 'issues': ["Semantic review failed"], 'suggestion': None}
+            print(f"⚠️  Semantic review error: {e}")
+            # Fail open — don't block valid SQL just because reviewer errored
+            return {'approved': True, 'issues': [f'Review error: {e}'], 'suggestion': None}
 
-    def _parseReview(self, text: str) -> Dict[str, Any]:
-        """Parse the structured LLM review response."""
-        approved = False
-        issues: list[str] = []
-        suggestion: Optional[str] = None
-
-        # Parse VERDICT
-        verdict_match = re.search(r'VERDICT:\s*(APPROVED|REJECTED)', text, re.IGNORECASE)
-        if verdict_match:
-            approved = verdict_match.group(1).strip().upper() == 'APPROVED'
-
-        # Parse ISSUES
-        issues_match = re.search(r'ISSUES:\s*(.+?)(?=\nCORRECTED_SQL|$)', text, re.DOTALL | re.IGNORECASE)
-        if issues_match:
-            raw = issues_match.group(1).strip()
-            if raw.lower() != 'none':
-                issues = [i.strip() for i in raw.split(',') if i.strip()]
-
-        # Parse CORRECTED_SQL
-        sql_match = re.search(r'CORRECTED_SQL:\s*```(?:sql)?\s*(.*?)\s*```', text, re.DOTALL | re.IGNORECASE)
-        if not sql_match:
-            sql_match = re.search(r'CORRECTED_SQL:\s*(SELECT\s+.+?)(?:\n\n|$)', text, re.DOTALL | re.IGNORECASE)
-        if not sql_match:
-            sql_match = re.search(r'CORRECTED_SQL:\s*(.+?)$', text, re.DOTALL | re.IGNORECASE)
-
-        if sql_match:
-            raw_sql = sql_match.group(1).strip()
-            if raw_sql.lower() != 'none' and 'SELECT' in raw_sql.upper():
-                suggestion = re.sub(r'\s+', ' ', raw_sql).rstrip(';')
-
-        return {'approved': approved, 'issues': issues, 'suggestion': suggestion}
-
-    def _correctQuery(self, question: str, failedSQL: str, error: str, schemaContext: str) -> Optional[str]:
-        """Ask the LLM to fix a broken query given the error."""
-        prompt = f"""Fix the following SQL query.
-
-QUESTION: {question}
-FAILED SQL: {failedSQL}
-ERROR: {error}
-
-DATABASE SCHEMA:
-{schemaContext}
-
-CRITICAL RULES:
-- Only use columns that exist in the schema above.
-- Order totals must be calculated as: quantity * list_price * (1 - discount) from order_items.
-- Never invent columns like "total_amount" or "order_total".
-
-Return ONLY the corrected SQL, nothing else.
-"""
+    def fixSQL(
+        self, question: str, failedSQL: str, error: str, schemaContext: str
+    ) -> Optional[str]:
+        """Ask LLM to fix a broken or rejected SQL query."""
+        prompt = buildCorrectionPrompt(question, failedSQL, error, schemaContext)
         try:
             response = self.ollamaClient.chat(
                 model=self.model,
+                format=FixResult.model_json_schema(),
                 messages=[
-                    {'role': 'system', 'content': 'You fix SQL queries. Reply with ONLY the corrected SQL.'},
-                    {'role': 'user', 'content': prompt},
+                    {'role': 'system', 'content': buildFixerSystemPrompt()},
+                    {'role': 'user',   'content': prompt},
                 ],
             )
-            return self._extractSQL(response['message']['content'])
+            result = FixResult.model_validate_json(response['message']['content'])
+            return result.sql.rstrip(';')
         except Exception as e:
-            print(f"⚠️  Correction failed: {e}")
+            print(f"⚠️  LLM fix error: {e}")
             return None
 
-    def _extractSQL(self, text: str) -> Optional[str]:
-        """Pull a SQL statement out of LLM output."""
-        # Code block
-        m = re.search(r'```(?:sql)?\s*(.*?)\s*```', text, re.DOTALL)
-        if m:
-            sql = m.group(1).strip()
-        else:
-            m = re.search(r'(SELECT\s+.+?)(?:\n\n|$)', text, re.DOTALL | re.IGNORECASE)
-            sql = m.group(1).strip() if m else None
+    # ------------------------------------------------------------------ #
+    # Result builder                                                       #
+    # ------------------------------------------------------------------ #
 
-        if sql:
-            sql = re.sub(r'\s+', ' ', sql).rstrip(';')
-        return sql
+    def returnFailedFallback(
+        self,
+        sql: str,
+        exec_fixes: int,
+        semantic_fixes: int,
+        exec_result: Dict,
+        issues: list,
+    ) -> Dict[str, Any]:
+        """Build a failure result dict when execution never succeeded."""
+        return {
+            'approved':       False,
+            'sql':            sql,
+            'exec_fixes':     exec_fixes,
+            'semantic_fixes': semantic_fixes,
+            'execution_ok':   False,
+            'row_count':      0,
+            'sample_result':  None,
+            'issues':         issues,
+        }
