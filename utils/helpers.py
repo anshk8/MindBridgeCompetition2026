@@ -12,10 +12,10 @@ def expectsEmpty(question: str) -> bool:
 def loadSchema(db_path: str) -> Dict[str, Any]:
     """
     Load schema information for all tables in the database, including column details and sample data.
-    
+
     Args:
         db_path (str): Path to the DuckDB database file
-        
+
     Returns:
         Dict[str, Any]: Dictionary mapping table names to their schema info (columns and samples)
     """
@@ -25,10 +25,10 @@ def loadSchema(db_path: str) -> Dict[str, Any]:
     try:
         # Use temporary connection
         conn = duckdb.connect(db_path)
-        
+
         # Get all table names
         tables = conn.execute("SHOW TABLES").fetchall()
-        tableNames = [table[0] for table in tables]
+        tableNames = sorted([table[0] for table in tables])  # ✅ Sort for deterministic ordering
 
         for tableName in tableNames:
             # Get column information
@@ -69,10 +69,10 @@ def loadSchema(db_path: str) -> Dict[str, Any]:
 def buildSchemaContext(schema_info: Dict[str, Any]) -> str:
     """
     Build rich schema context string with sample data for LLM prompts.
-    
+
     Args:
         schema_info (Dict[str, Any]): Schema information from loadSchema()
-        
+
     Returns:
         str: Formatted schema context with columns and sample rows
     """
@@ -102,14 +102,14 @@ def buildSchemaContext(schema_info: Dict[str, Any]) -> str:
 def executeSQL(db_path: str, sql: str) -> Dict[str, Any]:
     """
     Execute SQL query and return execution metadata.
-    
+
     Runs the query to check for execution success, gets a preview of results,
     and counts total rows efficiently without fetching all data.
-    
+
     Args:
         db_path (str): Path to the DuckDB database file
         sql (str): SQL query to execute
-        
+
     Returns:
         Dict[str, Any]: Execution results with structure:
             {
@@ -121,16 +121,21 @@ def executeSQL(db_path: str, sql: str) -> Dict[str, Any]:
     """
     conn = None
     try:
-        conn = duckdb.connect(db_path)
-        
+        # Open the database in read-only mode since this helper is used for validation
+        conn = duckdb.connect(db_path, read_only=True)
+        # Normalize SQL: trim whitespace and remove any trailing semicolon
+        normalized_sql = sql.strip()
+        if normalized_sql.endswith(";"):
+            normalized_sql = normalized_sql[:-1].rstrip()
+
         # Running only a small sample to check for execution success and get a preview
-        sample_result = conn.execute(sql).fetchmany(5)
+        sample_result = conn.execute(normalized_sql).fetchmany(5)
         sample = str(sample_result[0])[:100] if sample_result else None
-        
+
         # Get accurate row count efficiently without fetching all data
-        count_sql = f"SELECT COUNT(*) FROM ({sql}) AS subquery"
+        count_sql = f"SELECT COUNT(*) FROM ({normalized_sql}) AS subquery"
         row_count = conn.execute(count_sql).fetchone()[0]
-        
+
         return {
             'success': True,
             'row_count': row_count,

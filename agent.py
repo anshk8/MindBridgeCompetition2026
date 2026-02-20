@@ -11,8 +11,7 @@ Architecture:
 """
 
 import os
-import duckdb
-from typing import Dict, Any
+from typing import Any
 from agents.SQLAgent import SQLAgent
 from agents.ValidatorAgent import ValidatorAgent
 from db.bike_store import get_schema_info

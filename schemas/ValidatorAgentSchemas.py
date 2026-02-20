@@ -16,7 +16,7 @@ class ReviewResult(BaseModel):
         description="True if the SQL correctly answers the question, False if it should be rejected"
     )
     issues: list[str] = Field(
-        default=[],
+        default_factory=list,
         description="List of problems found with the SQL. Empty list if approved."
     )
     corrected_sql: Optional[str] = Field(

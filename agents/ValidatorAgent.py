@@ -71,7 +71,7 @@ class ValidatorAgent:
             return self.returnFailedFallback(sql, exec_fixes, 0, exec_result, issues)
 
         # ── Phase 2: Semantic review ──────────────────────────────────── #
-        sql, semantic_fixes, approved, exec_result = self.reviewSqlOuput(
+        sql, semantic_fixes, approved, exec_result = self.reviewSqlOutput(
             question, sql, schemaContext, exec_result, issues
         )
 
@@ -101,12 +101,14 @@ class ValidatorAgent:
         Try to execute SQL; fix with LLM on failure.
         Returns (final_sql, fixes_used, last_exec_result).
         """
-        for attempt in range(self.MAX_EXEC_FIXES + 1):  # 0 = original, 1-2 = fixes
+
+        attempt = 0
+        while attempt <= self.MAX_EXEC_FIXES:  # ✅ Changed < to <= so we try the last fix
             result = executeSQL(self.dbPath, sql)
 
             if result['success']:
                 if attempt > 0:
-                    print(f"✅ Execution fix succeeded (attempt {attempt})")
+                    print(f"✅ Execution fix succeeded after {attempt} fix(es)")
                 return sql, attempt, result
 
             # Execution failed
@@ -114,7 +116,8 @@ class ValidatorAgent:
             issues.append(f"Exec error (attempt {attempt}): {error_msg}")
             print(f"❌ Execution failed (attempt {attempt}): {error_msg}")
 
-            if attempt == self.MAX_EXEC_FIXES:
+            # Check if we can still fix
+            if attempt >= self.MAX_EXEC_FIXES:
                 break  # No more fixes allowed
 
             # Ask LLM to fix it
@@ -124,13 +127,15 @@ class ValidatorAgent:
                 break
             sql = fixed
 
-        return sql, self.MAX_EXEC_FIXES, result
+            attempt += 1
+
+        return sql, attempt, result
 
     # ------------------------------------------------------------------ #
     # Phase 2 — Semantic Review                                           #
     # ------------------------------------------------------------------ #
 
-    def reviewSqlOuput(
+    def reviewSqlOutput(
         self,
         question: str,
         sql: str,
