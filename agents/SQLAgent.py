@@ -153,7 +153,7 @@ class SQLAgent:
         similarities.sort(key=lambda x: x[0], reverse=True)
         return [ex for _, ex in similarities[:topK]]
 
-    def generate(self, question: str) -> str:
+    def generate(self, question: str, temperature: float = 0.7) -> str:
         """
         Generate SQL query using Chain-of-Thought reasoning and Few-Shot Learning.
 
@@ -162,6 +162,10 @@ class SQLAgent:
         2. Builds rich schema context with sample data
         3. Constructs a Chain-of-Thought prompt
         4. Generates SQL using the LLM
+
+        Args:
+            question: The natural language question.
+            temperature: Higher values produce more diverse outputs, for K-candidate generation method.
 
         Note: This method only generates SQL. Validation should be done separately.
         """
@@ -195,7 +199,8 @@ class SQLAgent:
                         'content': userPrompt
                     }
                 ],
-                format=SQLResult.model_json_schema()
+                format=SQLResult.model_json_schema(),
+                options={'temperature': temperature}
             )
 
             result = SQLResult.model_validate_json(response['message']['content'])

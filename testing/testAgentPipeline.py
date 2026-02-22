@@ -1,12 +1,22 @@
 """
 SQL Agent Testing Suite
 
-Tests the QueryWriter (competition interface) which orchestrates
-SQLAgent + ValidatorAgent pipeline.
-The SQLAgent generates SQL via CoT + Dynamic Few-Shot Learning,
-then the ValidatorAgent reviews for syntax, execution, and semantics
-(max 2 correction rounds).
+Tests the QueryWriter (competition interface) which runs every prompt through
+the LangGraph pipeline:
+
+    rankNode  →  routeAfterRank()  →  generateSqlNode → validateNode   (fast path)
+                                   →  kCandidatesNode                   (hard path)
+
+Each test result surfaces the full LangGraph state so you can see exactly
+which nodes ran, what difficulty was assigned, and how the validator scored
+the final query.
 """
+
+import sys
+import os
+
+# Allow running from the testing/ directory or from the project root
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import json
 import duckdb
@@ -14,7 +24,7 @@ from typing import Dict, Any
 from datetime import datetime
 
 from agent import QueryWriter
-from queriesToTest import EXTENDED_QUERIES
+from testing.queriesToTest import EXTENDED_QUERIES
 
 # ==================== NEW TEST QUERIES (NOT IN FEW-SHOT EXAMPLES) ====================
 
@@ -170,7 +180,6 @@ class SQLAgentTester:
         
     def _get_connection(self):
         """Get a temporary database connection for validation"""
-        import duckdb
         return duckdb.connect(self.db_path)
     
     def validate_sql_execution(self, sql: str) -> Dict[str, Any]:
@@ -224,19 +233,41 @@ class SQLAgentTester:
             'reviewer_approved': None,
             'reviewer_attempts': 0,
             'reviewer_issues': [],
+            # LangGraph state fields
+            'graphDifficulty': None,
+            'graphTablesNeeded': [],
+            'graphPath': None,
+            'execFixes': 0,
+            'semanticFixes': 0,
         }
         
         try:
-            # Generate SQL using QueryWriter (orchestrates SQLAgent + ValidatorAgent)
+            # Generate SQL through the full LangGraph pipeline
             final_sql = self.writer.generate_query(question)
             result['generated_sql'] = final_sql
 
-            # Read approval metadata stored as a side-effect during generate_query()
-            # No extra LLM calls — this is the exact same validation result from the pipeline
-            v = getattr(self.writer, '_last_validation', None)
-            result['reviewer_approved'] = v.get('approved') if v else None
-            result['reviewer_attempts'] = v.get('semantic_fixes', 0) if v else 0
-            result['reviewer_issues'] = v.get('issues', []) if v else []
+            # --- Surface the full LangGraph state ---
+            graphState = getattr(self.writer, '_lastGraphResult', None)
+            if graphState:
+                result['graphDifficulty']  = graphState.get('difficulty')
+                result['graphTablesNeeded'] = graphState.get('tablesNeeded', [])
+                kEnabled   = graphState.get('kEnabled', False)
+                difficulty = graphState.get('difficulty', '')
+                result['graphPath'] = (
+                    'kCandidatesNode'
+                    if kEnabled and difficulty and difficulty.lower() == 'hard'
+                    else 'generateSqlNode → validateNode'
+                )
+                v = graphState.get('validation', {})
+            else:
+                # Legacy fallback
+                v = getattr(self.writer, '_last_validation', None) or {}
+
+            result['reviewer_approved'] = v.get('approved')
+            result['reviewer_attempts'] = v.get('semantic_fixes', 0)
+            result['reviewer_issues']   = v.get('issues', [])
+            result['execFixes']         = v.get('exec_fixes', 0)
+            result['semanticFixes']     = v.get('semantic_fixes', 0)
 
             # Validate execution
             validation = self.validate_sql_execution(final_sql)
@@ -296,6 +327,14 @@ class SQLAgentTester:
                 print(f"\nGenerated SQL:")
                 print(f"  {result['generated_sql'][:200] if result['generated_sql'] else 'N/A'}...")
                 
+                # --- LangGraph section ---
+                gDiff   = result.get('graphDifficulty') or 'N/A'
+                gTables = ', '.join(result.get('graphTablesNeeded', [])) or 'N/A'
+                gPath   = result.get('graphPath') or 'N/A'
+                gK = ' (k-candidate ensemble)' if result.get('graphPath') == 'kCandidatesNode' else ' (fast path)'
+                print(f"\nLangGraph route:  rankNode → {gPath}{gK}")
+                print(f"Difficulty ranked: {gDiff}  |  Tables: {gTables}")
+
                 if result['success']:
                     validation = result['validation']
                     ra = result.get('reviewer_approved')
@@ -307,8 +346,10 @@ class SQLAgentTester:
                         approved_tag = ''
                     print(f"\n\u2705 Status: SUCCESS{approved_tag}")
                     print(f"   Returned {validation['row_count']} rows")
-                    if result.get('reviewer_attempts', 0) > 0:
-                        print(f"   Reviewer correction attempts: {result['reviewer_attempts']}")
+                    ef = result.get('execFixes', 0)
+                    sf = result.get('semanticFixes', 0)
+                    if ef or sf:
+                        print(f"   Validator fixes — exec: {ef}  semantic: {sf}")
                     if validation['sample_result']:
                         print(f"   Sample: {validation['sample_result']}")
                 else:
@@ -338,25 +379,44 @@ class SQLAgentTester:
         print(f"\nTotal Tests: {total_tests}")
         print(f"  ✅ Successful: {successful} ({successful/total_tests*100:.1f}%)")
         print(f"  ❌ Failed: {failed} ({failed/total_tests*100:.1f}%)")
-        # Reviewer stats
+
+        # Reviewer / validator stats
         reviewed = [r for r in results if r.get('reviewer_approved') is not None]
-        reviewer_approved = sum(1 for r in reviewed if r['reviewer_approved'])
-        corrections_used = sum(r.get('reviewer_attempts', 0) for r in results)
-        print(f"\n\U0001f50d Reviewer Stats:")
-        print(f"  Approved on first pass: {reviewer_approved}/{len(reviewed)}")
-        print(f"  Total correction rounds used: {corrections_used}")        
-        # Breakdown by difficulty
-        print("\n\nBreakdown by Difficulty:")
-        for difficulty in ['easy', 'medium', 'hard']:
-            diff_results = [r for r in results if r['difficulty'] == difficulty]
+        reviewer_approved    = sum(1 for r in reviewed if r['reviewer_approved'])
+        total_exec_fixes     = sum(r.get('execFixes', 0) for r in results)
+        total_semantic_fixes = sum(r.get('semanticFixes', 0) for r in results)
+        avg_ef = total_exec_fixes / total_tests if total_tests else 0
+        avg_sf = total_semantic_fixes / total_tests if total_tests else 0
+        print(f"\n🔍 Reviewer Stats:")
+        print(f"  Approved:              {reviewer_approved}/{len(reviewed)}")
+        print(f"  Total exec fixes:      {total_exec_fixes}  (avg {avg_ef:.2f}/query)")
+        print(f"  Total semantic fixes:  {total_semantic_fixes}  (avg {avg_sf:.2f}/query)")
+
+        # LangGraph routing stats
+        fast_path = sum(1 for r in results if r.get('graphPath') == 'generateSqlNode → validateNode')
+        k_path    = sum(1 for r in results if r.get('graphPath') == 'kCandidatesNode')
+        diff_counts: dict = {}
+        for r in results:
+            d = (r.get('graphDifficulty') or 'Unknown').capitalize()
+            diff_counts[d] = diff_counts.get(d, 0) + 1
+        print(f"\n🗺️  LangGraph Routing:")
+        print(f"  Fast path  (generateSqlNode → validateNode): {fast_path}")
+        print(f"  Hard path  (kCandidatesNode):                {k_path}")
+        print(f"\n  Difficulty as ranked by rankNode:")
+        for d, cnt in sorted(diff_counts.items()):
+            print(f"    {d}: {cnt}")
+
+        # Breakdown by test-category
+        print("\n\nBreakdown by Test Category:")
+        for difficulty in ['easy', 'medium', 'hard', 'hard_advanced', 'ambiguous', 'nonsense']:
+            diff_results = [r for r in results if r.get('difficulty') == difficulty]
             if diff_results:
                 diff_success = sum(1 for r in diff_results if r['success'])
                 diff_total = len(diff_results)
                 pct = (diff_success / diff_total * 100) if diff_total > 0 else 0
-                
                 emoji = '🟢' if difficulty == 'easy' else '🟡' if difficulty == 'medium' else '🔴'
                 print(f"  {emoji} {difficulty.upper()}: {diff_success}/{diff_total} successful ({pct:.1f}%)")
-        
+
         # Expected benchmarks
         print("\n\n🎯 Target Benchmarks (based on research):")
         print("  Easy: 90-100% | Medium: 70-85% | Hard: 50-70%")
@@ -385,8 +445,17 @@ class SQLAgentTester:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file = f"test_results_{timestamp}.json"
         
+        # Ensure all fields are JSON-serialisable before saving
+        serialisable = []
+        for r in results:
+            row = dict(r)
+            for key in ('graphTablesNeeded', 'reviewer_issues'):
+                if not isinstance(row.get(key), list):
+                    row[key] = []
+            serialisable.append(row)
+
         with open(output_file, 'w') as f:
-            json.dump(results, f, indent=2)
+            json.dump(serialisable, f, indent=2)
         
         print(f"\n💾 Detailed results saved to: {output_file}")
         print("="*80 + "\n")
@@ -421,7 +490,8 @@ def main():
     
     try:
         # Run all tests (all difficulties now that medium is active)
-        results = tester.run_test_suite(difficulties=['ambiguous', 'nonsense'], query_bank=EXTENDED_QUERIES)
+        results = tester.run_test_suite(difficulties=['hard', 'hard_advanced'], query_bank=TEST_QUERIES)
+        # results = tester.run_test_suite(difficulties=['ambiguous', 'nonsense'], query_bank=EXTENDED_QUERIES)
         
         print("\n✅ Testing complete!")
         print("\n💡 Tips for improvement if accuracy is low:")
