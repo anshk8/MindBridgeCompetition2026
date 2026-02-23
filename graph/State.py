@@ -1,11 +1,11 @@
-from typing import Optional
-from typing_extensions import TypedDict
+from typing import Literal
+from typing_extensions import TypedDict, NotRequired
 
 #The shared state that flows through the LangGraph pipeline.
 class SQLGenerationState(TypedDict):
     """
 
-    Set at entry:
+    Set at entry (required):
         question        — the natural language question
         schemaContext   — pre-built schema string (computed once in QueryWriter)
         kEnabled        — whether K-candidate mode is active
@@ -23,17 +23,17 @@ class SQLGenerationState(TypedDict):
         finalSql        — cleaned SQL ready to return to the competition evaluator
     """
 
-    # ── Entry fields ───────────────────────────────────────────────── #
+    # ── Entry fields (required) ────────────────────────────────────── #
     question: str
     schemaContext: str
     kEnabled: bool
     kCount: int
 
     # ── After rank_node ────────────────────────────────────────────── #
-    difficulty: Optional[str]
-    tablesNeeded: list
+    difficulty: NotRequired[Literal['Easy', 'Medium', 'Hard', 'Ambiguous'] | None]
+    tablesNeeded: NotRequired[list[str]]
 
     # ── After generation / validation ─────────────────────────────── #
-    sql: str
-    validation: dict
-    finalSql: str
+    sql: NotRequired[str]
+    validation: NotRequired[dict]
+    finalSql: NotRequired[str]

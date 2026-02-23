@@ -31,7 +31,7 @@ Step 6: Is GROUP BY needed? If yes, which columns?
 Step 7: Is sorting needed (ORDER BY)? If yes, which columns and direction?
 Step 8: Is a LIMIT needed?
 
-You will respond in JSON with two fields: 'reasoning' (your step-by-step thinking) and 'sql' (the final SQL query — no markdown, just the raw SQL).
+You will respond in JSON with two fields: "reasoning" (your step-by-step thinking) and "sql" (the final SQL query — no markdown, just the raw SQL).
 """
 
 
@@ -98,7 +98,7 @@ You REJECT queries that:
 - Answer a different question than what was asked
 - Have GROUP BY violations or other structural problems
 
-You will respond in JSON with three fields: 'approved' (bool), 'issues' (list of strings, empty if approved), and 'corrected_sql' (fixed SQL string if rejected, null if approved)."""
+You will respond in JSON with three fields: "approved" (bool), "issues" (list of strings, empty if approved), and "corrected_sql" (fixed SQL string if rejected, null if approved)."""
 
 
 def buildFixerSystemPrompt() -> str:
@@ -112,7 +112,7 @@ Rules:
 3. If the fix requires restructuring (e.g. adding a CTE), do so cleanly.
 4. Never invent columns. Check the schema carefully before referencing any column.
 
-You will respond in JSON with one field: 'sql' containing the corrected SQL query (raw SQL only, no markdown)."""
+You will respond in JSON with one field: "sql" containing the corrected SQL query (raw SQL only, no markdown)."""
 
 
 def buildSemanticReviewPrompt(question: str, sql: str, schemaContext: str) -> str:
@@ -230,10 +230,10 @@ CLASSIFICATION PROCESS:
 5. Assign the most appropriate tier.
 
 You will respond in JSON with four fields:
-  'difficulty'      — one of: "Easy", "Medium", "Hard", "Ambiguous"
-  'reasoning'       — concise step-by-step justification
-  'tables_needed'   — list of table names required
-  'ambiguity_notes' — explanation if Ambiguous, else empty string
+  "difficulty"      — one of: "Easy", "Medium", "Hard", "Ambiguous"
+  "reasoning"       — concise step-by-step justification
+  "tables_needed"   — list of table names required
+  "ambiguity_notes" — explanation if Ambiguous, else empty string
 """
 
 

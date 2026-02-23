@@ -11,7 +11,6 @@ Architecture:
 """
 
 import os
-from typing import Optional
 from agents.SQLAgent import SQLAgent
 from agents.ValidatorAgent import ValidatorAgent
 from agents.DifficultyRankerAgent import DifficultyRankerAgent
@@ -63,6 +62,7 @@ class QueryWriter:
 
         # Load schema with samples for agents
         self.schema_info = loadSchema(db_path)
+        self.schema_context = buildSchemaContext(self.schema_info)  # cached once
 
         # Initialize Agents
         self.ranker    = DifficultyRankerAgent(dbPath=db_path)
@@ -71,7 +71,7 @@ class QueryWriter:
         # Compile the LangGraph pipeline (agents are captured in node closures)
         self.graph = SqlGenerationPipeline(self.ranker, self.agent, self.validator)
 
-        #Setting, Modifiable by user
+        #Settings, Modifiable by user
         self.k_candidate_enabled = False   # Set False to use fast path for all queries
         self.k_candidate_count = 5
     
@@ -100,14 +100,9 @@ class QueryWriter:
         try:
             result = self.graph.invoke({
                 'question':      prompt,
-                'schemaContext': buildSchemaContext(self.schema_info),
+                'schemaContext': self.schema_context,
                 'kEnabled':      self.k_candidate_enabled,
                 'kCount':        self.k_candidate_count,
-                'difficulty':    None,
-                'tablesNeeded':  [],
-                'sql':           '',
-                'validation':    {},
-                'finalSql':      'SELECT 1',
             })
 
             self._lastGraphResult  = result                        # full state; for tests only

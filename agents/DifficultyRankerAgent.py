@@ -77,8 +77,6 @@ class DifficultyRankerAgent:
                 .tables_needed   — List of table names likely required
                 .ambiguity_notes — Non-empty only when difficulty == Ambiguous
 
-        Raises:
-            RuntimeError: if the LLM call fails and no fallback is possible.
         """
         print(f"\n🎯 DifficultyRankerAgent classifying: '{question}'")
 
@@ -99,7 +97,7 @@ class DifficultyRankerAgent:
                 response['message']['content']
             )
 
-            self._log_result(result)
+            self.logResult(result)
             return result
 
         except Exception as e:
@@ -128,7 +126,8 @@ class DifficultyRankerAgent:
     # Helpers                                                              #
     # ------------------------------------------------------------------ #
 
-    def _log_result(self, result: DifficultyResult) -> None:
+    #TODO Remove for actual submission
+    def logResult(self, result: DifficultyResult) -> None:
         """Pretty-print the classification result."""
         icon = {
             Difficulty.EASY:      "🟢",
