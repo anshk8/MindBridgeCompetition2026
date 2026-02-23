@@ -1,18 +1,15 @@
-**Submission for MindBridge AI SQL Query Writer Competition — Winter 2026**  
-**Author:** Ansh Kakkar  
-**Due Date:** March 13, 2026  
 
----
+# MindBridge × Carleton SQL Query Writer Agent (2026)
+**Author:** Ansh Kakkar (Student#: 101298368) 
+**Due Date:** March 13, 2026  
 
 ## Table of Contents
 
 1. [Architecture Overview](#1-architecture-overview)
 2. [Agent Design](#2-agent-design)
-   - [SQLAgent — Generation](#sqlagent--generation)
+   - [SQLAgent — Generation using innovative techniques or something?](#sqlagent--generation)
    - [ValidatorAgent — Review & Correction](#validatoragent--review--correction)
-   - [K-Candidate Path — Hard Query Diversity](#k-candidate-path--hard-query-diversity)
-3. [Advanced Techniques](#3-advanced-techniques)
-4. [Example Workflow (from Test Suite)](#4-example-workflow-from-test-suite)
+   - [DifficultyRanker and K-Candidate Path — Hard Query Diversity](#k-candidate-path--hard-query-diversity)
 5. [How to Run](#5-how-to-run)
 6. [Code Organization](#6-code-organization)
 7. [Evaluation Criteria Alignment](#7-evaluation-criteria-alignment)
@@ -24,38 +21,46 @@
 
 ## 1. Architecture Overview
 
-The solution is a **two-stage agentic pipeline**: a *generation* agent produces a SQL query from a natural language question, and a *validation* agent reviews and, if necessary, corrects it before returning the final answer to the evaluation harness. 
+My submission includes the option to generate K Candidate Queries for Hard Level problems. This uses a chat completion endpoints with a diverse range of temperatures for different results, ranking each one for the best (and hopefully correct) output. To see HOW to enable this feature, see here []. 
 
 ```
-User Question
-      │
-      ▼
-┌─────────────────────────────────────────┐
-│            QueryWriter                  │  ← competition interface (agent.py)
-│                                         │
-│  ┌──────────────────────────────────┐   │
-│  │          SQLAgent                │   │  ← generation
-│  │  1. Embed question               │   │
-│  │  2. Retrieve top-3 few-shot      │   │
-│  │     examples (cosine similarity) │   │
-│  │  3. Build schema context         │   │
-│  │     (columns + sample rows)      │   │
-│  │  4. Build CoT prompt             │   │
-│  │  5. LLM → raw SQL                │   │
-│  └──────────────────────────────────┘   │
-│               │                         │
-│               ▼                         │
-│  ┌──────────────────────────────────┐   │
-│  │        ValidatorAgent            │   │  ← review & correction
-│  │  1. Execute SQL against DuckDB   │   │
-│  │  2. Sanity-check row count       │   │
-│  │  3. LLM semantic review          │   │
-│  │  4. Correct (max 2 rounds)       │   │
-│  └──────────────────────────────────┘   │
-│               │                         │
-└───────────────┼─────────────────────────┘
-                ▼
-         Final SQL Query
+                         ┌─────────────────────┐
+                         │     User Question   │
+                         └──────────┬──────────┘
+                                    │
+                                    v
+                    ┌─────────────────────────────────┐
+                    │ Feature Flag: kGenerationFeature │
+                    │ (K-candidate mode enabled?)      │
+                    └──────────┬───────────┬───────────┘
+                               │           │
+                      Disabled │           │ Enabled
+                               │           v
+                               │   ┌──────────────────────┐
+                               │   │ DifficultyRankerAgent │
+                               │   │  -> easy/medium/hard  │
+                               │   └──────────┬───────────┘
+                               │              │
+                               │              |  Query is hard level?
+                               │              │
+                               v              v
+                  ┌──────────────────┐   ┌───────────────────────────┐
+                  │ SQLAgent (K=1)   │   │ SQLAgent (K=5 candidates)  │
+                  │ generate 1 SQL   │   │ diverse temperatures       │
+                  └─────────┬────────┘   └─────────────┬─────────────┘
+                            │                          │
+                            v                          v
+               ┌────────────────────────┐   ┌───────────────────────────────┐
+               │ ValidatorAgent          │   │ ValidatorAgent (per candidate)│
+               │ execute + fix + review  │   │ execute + fix + score/select  │
+               └──────────┬─────────────┘   └──────────────┬────────────────┘
+                          │                                 │
+                          v                                 v
+                 ┌──────────────────┐               ┌──────────────────┐
+                 │     Final SQL    │               │     Final SQL    │
+                 └──────────────────┘               └──────────────────┘
+                          
+
 ```
 
 ---
