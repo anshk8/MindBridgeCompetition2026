@@ -37,14 +37,16 @@ def scoreCandidate(validation: dict) -> int:
         -3   per semantic fix applied by ValidatorAgent
     """
     score = 0
-    if validation.get('execution_ok'):
+    if not validation.get('execution_ok'):
+        score -= 99999999999
+    else:
         score += 50
-    if validation.get('approved'):
-        score += 40
-    if validation.get('row_count', 0) > 0:
-        score += 5
-    score -= validation.get('exec_fixes', 0) * 3
-    score -= validation.get('semantic_fixes', 0) * 3
+        if validation.get('approved'):
+            score += 40
+        if validation.get('row_count', 0) > 0:
+            score += 5
+        score -= validation.get('exec_fixes', 0) * 3
+        score -= validation.get('semantic_fixes', 0) * 3
     return score
 
 
