@@ -1,10 +1,6 @@
-# SQL Query Writer Agent — Competition Report
-
 **Submission for MindBridge AI SQL Query Writer Competition — Winter 2026**  
-**Author:** Ansh Nandwani  
-**Date:** February 18, 2026  
-**Model Used:** `qwen2.5-coder:14b` via Ollama  
-**Python Version:** 3.11.9 (see [runtime.txt](runtime.txt))
+**Author:** Ansh Kakkar  
+**Due Date:** March 13, 2026  
 
 ---
 
@@ -14,6 +10,7 @@
 2. [Agent Design](#2-agent-design)
    - [SQLAgent — Generation](#sqlagent--generation)
    - [ValidatorAgent — Review & Correction](#validatoragent--review--correction)
+   - [K-Candidate Path — Hard Query Diversity](#k-candidate-path--hard-query-diversity)
 3. [Advanced Techniques](#3-advanced-techniques)
 4. [Example Workflow (from Test Suite)](#4-example-workflow-from-test-suite)
 5. [How to Run](#5-how-to-run)
@@ -120,6 +117,96 @@ A shared helper `expectsEmpty(question)` in [utils/helpers.py](utils/helpers.py)
 
 ---
 
+### K-Candidate Path — Hard Query Diversity
+
+**Files:** [graph/Nodes.py](graph/Nodes.py), [graph/GraphWorkflow.py](graph/GraphWorkflow.py)
+
+For hard queries, a single generation attempt at one temperature may commit to the wrong SQL pattern — and the validator's self-correction loop cannot recover if the structural approach itself is wrong. The **K-Candidate path** addresses this by generating multiple independent SQL candidates at varied temperatures, validating each, and returning the highest-scoring result.
+
+#### Activation
+
+Disabled by default for speed. To enable, set in [agent.py](agent.py):
+
+```python
+self.k_candidate_enabled = True   # triggers K-candidate path for Hard queries
+self.k_candidate_count = 5        # number of candidates to generate
+```
+
+#### Temperature Schedule
+
+Candidates are generated across a spread of temperatures to introduce structural diversity:
+
+```
+K_TEMPERATURES = [0.3, 0.7, 1.0, 0.5, 0.9, 1.2]
+```
+
+The first candidate always runs at `0.3` (conservative/deterministic). Higher temperatures encourage the model to explore alternative SQL patterns — CTEs, window functions, correlated subqueries — rather than defaulting to the same structure every time.
+
+#### Scoring
+
+Each candidate is scored by `scoreCandidate()`:
+
+| Condition | Points |
+|---|---|
+| Executes without error | +50 |
+| Semantically approved by ValidatorAgent | +40 |
+| Returns at least one row | +5 |
+| Per execution fix applied | −3 |
+| Per semantic fix applied | −3 |
+| Execution failed | −99,999,999,999 (eliminated) |
+
+The pipeline exits early if a perfect candidate (executes + approved) is found, avoiding unnecessary LLM calls.
+
+#### Example — "Show me the most in-stock product at each different store"
+
+This query is a **top-N per group** retrieval problem — a pattern where the choice of SQL idiom (aggregation vs. window function vs. correlated subquery) significantly affects correctness.
+
+**Without K-Candidate (`kEnabled=False`):**
+
+The generator chose a subquery-join-on-MAX approach:
+
+```sql
+SELECT s.store_name, p.product_name, st.quantity
+FROM (
+    SELECT st.store_id, MAX(st.quantity) AS max_quantity
+    FROM stocks st GROUP BY st.store_id
+) AS max_stocks
+JOIN stocks st ON max_stocks.store_id = st.store_id
+  AND max_stocks.max_quantity = st.quantity
+JOIN products p ON st.product_id = p.product_id
+JOIN stores s ON st.store_id = s.store_id
+```
+
+Result: **25 rows** — all products tied at `quantity = 30` across the three stores. Structurally valid, but returns every tied product rather than one per store.
+
+**With K-Candidate (`kEnabled=True`, temperature `0.3`):**
+
+The first candidate (temperature `0.3`) generated a CTE + `ROW_NUMBER()` window function:
+
+```sql
+WITH RankedProducts AS (
+    SELECT p.product_name, s.store_name, st.quantity,
+           ROW_NUMBER() OVER (PARTITION BY st.store_id ORDER BY st.quantity DESC) AS rn
+    FROM products p
+    JOIN stocks st ON p.product_id = st.product_id
+    JOIN stores s ON st.store_id = s.store_id
+)
+SELECT product_name, store_name, quantity
+FROM RankedProducts
+WHERE rn = 1
+```
+
+Result: **3 rows** — exactly one product per store, matching the natural language intent of "the most in-stock product *at each* store".
+
+| Run | SQL Pattern | Rows Returned | Matches Intent |
+|---|---|---|---|
+| kEnabled=False | Subquery JOIN on MAX | 25 (all ties) | Partially |
+| kEnabled=True (temp=0.3) | CTE + ROW_NUMBER | 3 (one per store) | ✅ |
+
+This demonstrates the core value of K-Candidate generation: by sampling at a conservative temperature first, the pipeline found a structurally superior idiom (`ROW_NUMBER` with `PARTITION BY`) that directly satisfies the "one per group" requirement — a structure the single-temperature fast path did not reach.
+
+---
+
 ## 3. Advanced Techniques
 
 | Technique | Where Applied | Purpose |
@@ -130,7 +217,9 @@ A shared helper `expectsEmpty(question)` in [utils/helpers.py](utils/helpers.py)
 | **Schema grounding with sample data** | `SQLAgent.loadSchema()` | LLM sees real column names and values — no schema guessing |
 | **Self-correction loop** | `ValidatorAgent.validate()` | Automatically fixes execution and semantic errors (≤2 rounds) |
 | **Structured LLM output** | `ValidatorAgent._semanticReview()` | Deterministic parsing of review verdicts |
-| **Domain-specific prompt rules** | `SQLAgent.buildCoTPrompt()` | Prevents known pitfalls (e.g., invented total columns) |
+| **Domain-specific prompt rules** | `SQLAgent.buildCoTPrompt()` | Prevents known pitfalls (e.g., invented total columns, `ANY_VALUE` misuse) |
+| **K-Candidate generation** | `kCandidatesNode` in `graph/Nodes.py` | Generates K candidates at varied temperatures for Hard queries; picks highest-scoring validated result |
+| **Difficulty-aware routing** | `DifficultyRankerAgent` + `GraphWorkflow.py` | Routes Hard queries to K-candidate path; Easy/Medium take fast path |
 
 ---
 
