@@ -19,9 +19,9 @@
 
 ---
 
-## 1. Architecture Overview
+# 1. Architecture Overview (Inside Langgraph Workflow)
 
-My submission includes the option to generate K Candidate Queries for Hard Level problems. This uses a chat completion endpoints with a diverse range of temperatures for different results, ranking each one for the best (and hopefully correct) output. To see HOW to enable this feature, see here []. 
+My submission includes the option to generate K Candidate Queries for Hard Level problems. This uses a chat completion endpoint with a diverse range of temperatures for different results, ranking each one for the best (and hopefully correct) output. To see HOW to enable this feature, see here.
 
 ```
                          ┌─────────────────────┐
@@ -63,168 +63,136 @@ My submission includes the option to generate K Candidate Queries for Hard Level
 
 ```
 
----
+# 2. Enabling Features
 
-## 2. Agent Design Decisions
+## Enabling K-candidate generation
+To enable the K-candidate path, toggle the feature flag in the QueryWriter constructor inside 
+```
+   agent.py
 
-### SQLAgent — Generation
-
-**File:** [agents/SQLAgent.py](agents/SQLAgent.py)
-
-The `SQLAgent` is responsible for turning a natural language question into a SQL query. It combines a variety of innovative techniques:
-
-#### a) Schema Introspection with Sample Data
-
-On startup, `SQLAgent.loadSchema()` opens a temporary DuckDB connection, enumerates every table via `SHOW TABLES`, fetches column metadata via `DESCRIBE <table>`, and pulls 3 sample rows per table. This rich context (column names, types, and representative values) is injected verbatim into every prompt, so the LLM never has to guess the schema.
-
-#### b) Dynamic Few-Shot Learning via Semantic Similarity
-
-Uses an embedding transformer model to find semantically similar examples. I have included a variety of different example questions and prompts which include easy to advanced SQL queries. The examples combine aggregations, joins, filters etc to help the agent. 
-
-#### c) Chain-of-Thought (CoT) Prompting
-
-The prompt explicitly instructs the model to reason through 8 structured steps before generating a SQL statement:
+   class QueryWriter:
+    def __init__(self, db_path: str = 'bike_store.db'):
+         ...REST
+         
+         # Set False to use fast path for all queries
+         self.k_candidate_enabled = False   
+         self.k_candidate_count = 5
 
 ```
-Step 1: What tables are needed?
-Step 2: What columns should be selected?
-Step 3: Are any JOINs needed?
-Step 4: Are any WHERE filters needed?
-Step 5: Are any aggregations needed (COUNT, SUM, AVG)?
-Step 6: Is GROUP BY needed?
-Step 7: Is sorting needed (ORDER BY)?
-Step 8: Is a LIMIT needed?
-```
-
-This forces the LLM to decompose the problem rather than jumping directly to a query, which significantly reduces hallucinated column names and incorrect JOIN conditions.
 
 ---
 
-### ValidatorAgent — Review & Correction
 
-**File:** [agents/ValidatorAgent.py](agents/ValidatorAgent.py)
 
-The `ValidatorAgent` acts as a lightweight quality gate. It performs three sequential checks and will attempt to fix a failing query up to **2 times** before returning the best available result.
 
-#### Validation Pipeline
+# 3. Agent Design + Techniques
 
-| Step | Check | Action on Failure |
-|---|---|---|
-| 1 | **Execution** — run SQL against DuckDB | Ask LLM to fix the error |
-| 2 | **Sanity** — row count is non-zero (if expected) | Flag issue (no correction burn) |
-| 3 | **Semantic review** — LLM confirms query answers the question | Apply `CORRECTED_SQL` from LLM response |
+This system is built as a **multi-agent architecture** where each agent has a clearly defined responsibility. The design separates generation, validation, and orchestration to improve reliability and correctness.
 
-The semantic review uses a **structured output protocol**: the LLM must respond in a strict `VERDICT / ISSUES / CORRECTED_SQL` format. This makes parsing deterministic and avoids ambiguous free-text responses.
 
-The `maxCorrections=2` cap prevents infinite loops while still giving the pipeline one or two chances to self-correct.
+## 1. SQLAgent (Generator)
 
-A shared helper `expectsEmpty(question)` in [utils/helpers.py](utils/helpers.py) detects questions like "Find products that have never been ordered" where 0 rows is actually the correct answer — preventing a false negative.
+**Role:** Converts natural language questions into SQL queries.
+
+### Techniques Used:
+
+#### **Chain-of-Thought (CoT) Prompting**  
+  Encourages step-by-step reasoning (tables → joins → filters → aggregations) before producing SQL. Follows clear steps in the system prompt. 
+```
+utils/prompts.py
+
+      def buildSystemPrompt() -> str:
+
+         ...
+   
+         REASONING PROCESS:
+         You must think through each query step-by-step using Chain-of-Thought reasoning:
+         
+         Step 1: What tables are needed?
+         Step 2: What columns should be selected?
+         Step 3: Are any JOINs needed? If yes, what are the JOIN conditions?
+         Step 4: Are any WHERE filters needed? If yes, what conditions?
+         Step 5: Are any aggregations needed (COUNT, SUM, AVG, etc.)?
+         Step 6: Is GROUP BY needed? If yes, which columns?
+         Step 7: Is sorting needed (ORDER BY)? If yes, which columns and direction?
+         Step 8: Is a LIMIT needed?
+      
+```
+
+### **Dynamic Few-Shot Learning**
+  Injects relevant example queries per question to assist LLM. Uses embedding similarity to select the most relevant examples from a query bank of 15 different example prompts.
+```
+agents/SQLAgent.py
+
+      def setupFewShotExamples(self) -> List[FewShotExample]:
+            FewShotExample(
+                question="How many products are in each category?",
+                sql="SELECT c.category_name, COUNT(p.product_id) FROM categories c LEFT JOIN products p ON c.category_id = p.category_id GROUP BY c.category_name",
+                explanation="JOIN with GROUP BY aggregation"
+            ),
+            FewShotExample(
+                question="Which stores have the most inventory?",
+                sql="SELECT s.store_name, SUM(st.quantity) as total_inventory FROM stores s JOIN stocks st ON s.store_id = st.store_id GROUP BY s.store_id, s.store_name ORDER BY total_inventory DESC",
+                explanation="Multi-table JOIN with GROUP BY and ORDER BY"
+            ),
+            FewShotExample(
+                question="Find customers who have never placed an order",
+                sql="SELECT first_name, last_name, email FROM customers WHERE customer_id NOT IN (SELECT DISTINCT customer_id FROM orders)",
+                explanation="Subquery with NOT IN for exclusion"
+            ),
+
+```
+
+### **Schema Grounding**  
+  Provides context to the LLM, including the actual table and column names and example values, to reduce hallucinations.
+
+```
+utils/prompts.py
+   #When calling chat completion we build a prompt that combines Schema Context which includes row examples along with our FewShotExamples.
+   def buildUserPrompt(question: str, schemaContext: str, fewShotContext: str) -> str:
+```
 
 ---
 
-### K-Candidate Path — Hard Query Diversity
+### 2. ValidatorAgent (Verifier + Repair)
 
-**Files:** [graph/Nodes.py](graph/Nodes.py), [graph/GraphWorkflow.py](graph/GraphWorkflow.py)
+**Role:** Ensures the generated SQL is executable and semantically correct.
 
-For hard queries, a single generation attempt at one temperature may commit to the wrong SQL pattern — and the validator's self-correction loop cannot recover if the structural approach itself is wrong. The **K-Candidate path** addresses this by generating multiple independent SQL candidates at varied temperatures, validating each, and returning the highest-scoring result.
+**What it does:**
+- Executes SQL against the database
+- Detects runtime errors
+- Performs structured semantic review
+- Automatically repairs incorrect queries (bounded loop)
 
-#### Activation
+**Techniques Used:**
 
-Disabled by default for speed. To enable, set in [agent.py](agent.py):
+- **Execution-Based Validation**  
+  Runs the SQL to catch syntax and runtime errors.
 
-```python
-self.k_candidate_enabled = True   # triggers K-candidate path for Hard queries
-self.k_candidate_count = 5        # number of candidates to generate
-```
+- **Structured Semantic Review**  
+  Uses machine-parseable LLM output to verify whether the query truly answers the question.
 
-#### Temperature Schedule
-
-Candidates are generated across a spread of temperatures to introduce structural diversity:
-
-```
-K_TEMPERATURES = [0.3, 0.7, 1.0, 0.5, 0.9, 1.2]
-```
-
-The first candidate always runs at `0.3` (conservative/deterministic). Higher temperatures encourage the model to explore alternative SQL patterns — CTEs, window functions, correlated subqueries — rather than defaulting to the same structure every time.
-
-#### Scoring
-
-Each candidate is scored by `scoreCandidate()`:
-
-| Condition | Points |
-|---|---|
-| Executes without error | +50 |
-| Semantically approved by ValidatorAgent | +40 |
-| Returns at least one row | +5 |
-| Per execution fix applied | −3 |
-| Per semantic fix applied | −3 |
-| Execution failed | −99,999,999,999 (eliminated) |
-
-The pipeline exits early if a perfect candidate (executes + approved) is found, avoiding unnecessary LLM calls.
-
-#### Example — "Show me the most in-stock product at each different store"
-
-This query is a **top-N per group** retrieval problem — a pattern where the choice of SQL idiom (aggregation vs. window function vs. correlated subquery) significantly affects correctness.
-
-**Without K-Candidate (`kEnabled=False`):**
-
-The generator chose a subquery-join-on-MAX approach:
-
-```sql
-SELECT s.store_name, p.product_name, st.quantity
-FROM (
-    SELECT st.store_id, MAX(st.quantity) AS max_quantity
-    FROM stocks st GROUP BY st.store_id
-) AS max_stocks
-JOIN stocks st ON max_stocks.store_id = st.store_id
-  AND max_stocks.max_quantity = st.quantity
-JOIN products p ON st.product_id = p.product_id
-JOIN stores s ON st.store_id = s.store_id
-```
-
-Result: **25 rows** — all products tied at `quantity = 30` across the three stores. Structurally valid, but returns every tied product rather than one per store.
-
-**With K-Candidate (`kEnabled=True`, temperature `0.3`):**
-
-The first candidate (temperature `0.3`) generated a CTE + `ROW_NUMBER()` window function:
-
-```sql
-WITH RankedProducts AS (
-    SELECT p.product_name, s.store_name, st.quantity,
-           ROW_NUMBER() OVER (PARTITION BY st.store_id ORDER BY st.quantity DESC) AS rn
-    FROM products p
-    JOIN stocks st ON p.product_id = st.product_id
-    JOIN stores s ON st.store_id = s.store_id
-)
-SELECT product_name, store_name, quantity
-FROM RankedProducts
-WHERE rn = 1
-```
-
-Result: **3 rows** — exactly one product per store, matching the natural language intent of "the most in-stock product *at each* store".
-
-| Run | SQL Pattern | Rows Returned | Matches Intent |
-|---|---|---|---|
-| kEnabled=False | Subquery JOIN on MAX | 25 (all ties) | Partially |
-| kEnabled=True (temp=0.3) | CTE + ROW_NUMBER | 3 (one per store) | ✅ |
-
-This demonstrates the core value of K-Candidate generation: by sampling at a conservative temperature first, the pipeline found a structurally superior idiom (`ROW_NUMBER` with `PARTITION BY`) that directly satisfies the "one per group" requirement — a structure the single-temperature fast path did not reach.
+- **Bounded Self-Correction Loop (≤2 rounds)**  
+  Iteratively repairs queries while preventing runaway correction cycles.
 
 ---
 
-## 3. Advanced Techniques
+### 3. DifficultyRankerAgent (Router / Orchestrator)
 
-| Technique | Where Applied | Purpose |
-|---|---|---|
-| **Chain-of-Thought (CoT)** | `SQLAgent.buildCoTPrompt()` | Forces step-by-step decomposition, reduces hallucination |
-| **Dynamic Few-Shot Learning** | `SQLAgent.findSimilarQueryExamples()` | Provides contextually relevant examples rather than static ones |
-| **Semantic Similarity Retrieval** | `sentence-transformers` + cosine similarity | Selects the most relevant of 15 curated examples for each query |
-| **Schema grounding with sample data** | `SQLAgent.loadSchema()` | LLM sees real column names and values — no schema guessing |
-| **Self-correction loop** | `ValidatorAgent.validate()` | Automatically fixes execution and semantic errors (≤2 rounds) |
-| **Structured LLM output** | `ValidatorAgent._semanticReview()` | Deterministic parsing of review verdicts |
-| **Domain-specific prompt rules** | `SQLAgent.buildCoTPrompt()` | Prevents known pitfalls (e.g., invented total columns, `ANY_VALUE` misuse) |
-| **K-Candidate generation** | `kCandidatesNode` in `graph/Nodes.py` | Generates K candidates at varied temperatures for Hard queries; picks highest-scoring validated result |
-| **Difficulty-aware routing** | `DifficultyRankerAgent` + `GraphWorkflow.py` | Routes Hard queries to K-candidate path; Easy/Medium take fast path |
+**Role:** Estimates query complexity and routes it through the appropriate workflow.
+
+**What it does:**
+- Classifies queries as easy, medium, or hard
+- Allocates computational effort accordingly
+- Triggers multi-candidate generation for difficult queries
+
+**Techniques Used:**
+
+- **Difficulty-Aware Routing**  
+  Lightweight queries follow a fast single-path workflow.
+
+- **Adaptive Compute Allocation**  
+  Complex queries activate K-candidate generation and validation selection.
 
 ---
 
