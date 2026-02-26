@@ -15,7 +15,7 @@
 
 ---
 
-# 1. Architecture Overview (Inside Langgraph Workflow)
+# 1. Architecture Overview (Inside LangGraph Workflow)
 
 My submission uses an SQL Generation Agent with various techniques, followed by a Validator Agent for execution and semantic review (For more details, see the Agent section). 
 Additionally, my submission includes a toggleable feature to generate K Candidate Queries for Hard Level problems. This uses a chat-completion endpoint with a diverse range of temperatures to produce different results, ranking each for the best (and hopefully correct) output. 
