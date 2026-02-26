@@ -5,23 +5,13 @@
 
 ## Table of Contents
 
-1. [Architecture Overview](#1-architecture-overview)
-2. [Agent Design](#2-agent-design)
-   - [SQLAgent — Generation using innovative techniques or something?](#sqlagent--generation)
-   - [ValidatorAgent — Review & Correction](#validatoragent--review--correction)
-   - [DifficultyRanker and K-Candidate Path — Hard Query Diversity](#k-candidate-path--hard-query-diversity)
-5. [How to Run](#5-how-to-run)
-6. [Code Organization](#6-code-organization)
-7. [Evaluation Criteria Alignment](#7-evaluation-criteria-alignment)
-8. [Challenges Faced](#8-challenges-faced)
-9. [Key Learnings](#9-key-learnings)
-10. [About Me](#10-about-me)
 
 ---
 
 # 1. Architecture Overview (Inside Langgraph Workflow)
 
-My submission includes the option to generate K Candidate Queries for Hard Level problems. This uses a chat completion endpoint with a diverse range of temperatures for different results, ranking each one for the best (and hopefully correct) output. To see HOW to enable this feature, see here.
+My submission uses an SQL Generation Agent with various techniques, followed by a Validator Agent for execution and semantic review (For more details, see the Agent section). 
+Additionally, my submission includes a toggleable feature to generate K Candidate Queries for Hard Level problems. This uses a chat-completion endpoint with a diverse range of temperatures to produce different results, ranking each for the best (and hopefully correct) output. 
 
 ```
                          ┌─────────────────────┐
@@ -120,11 +110,11 @@ utils/prompts.py
 ```
 
 #### **Dynamic Few-Shot Learning**
-  Injects relevant example queries per question to assist LLM. Uses embedding similarity to select the most relevant examples from a query bank of 15 different example prompts.
+  Injects relevant example queries per question to assist LLM. Uses embedding similarity to select the top 3 most relevant examples from a query bank of different example prompts.
 ```
 agents/SQLAgent.py
 
-      #Function used to setup example questions
+      #Different Examples included in the agent
       def setupFewShotExamples(self) -> List[FewShotExample]:
             FewShotExample(
                 question="How many products are in each category?",
@@ -145,7 +135,7 @@ agents/SQLAgent.py
 ```
 
 #### **Schema Grounding**  
-  Provides context to the LLM, including the actual table and column names and example values, to reduce hallucinations.
+  Provides context to the LLM, including the table names and actual sample column data, to reduce hallucinations.
 
 ```
 utils/prompts.py
@@ -175,83 +165,35 @@ Ensures that generated SQL is both executable and semantically correct before re
 
 **Role:** Classifies queries as easy, medium, or hard.
 
-The main goal of the system is high SQL accuracy without unnecessary LLM calls. During testing, I noticed that harder user queries involving multiple JOINs, filters, and aggregations are more likely to produce incorrect SQL. Since my architecture already performs very well on easy-to-medium queries, generating K candidate queries for all questions would be redundant. The DifficultyRankerAgent identifies only the hard queries and routes them through K-candidate generation, making the system more efficient and ONLY allocating extra reasoning power where it actually improves accuracy.
+The main goal of the system is high SQL accuracy without unnecessary LLM calls. During testing, I noticed that harder user queries involving multiple JOINs, filters, and aggregations are more likely to produce incorrect SQL. Since my architecture already performs very well on easy-to-medium queries, generating K candidate queries for all questions would be redundant. The DifficultyRankerAgent identifies only hard queries and routes them through K-candidate generation, making the system more efficient and allocating extra reasoning power only where it actually improves accuracy.
 
 ---
 
 ## 4. Code Organization
 
-```
-.
-├── agent.py                  # QueryWriter — competition interface
-├── main.py                   # Interactive entry point
-├── test_agent_pipeline.py    # Full test suite (easy / medium / hard)
-├── evaluationDataset.py      # Extended evaluation dataset (30+ questions)
-├── interactive_query.py      # Lightweight REPL helper
-├── requirements.txt          # Pinned dependencies
-├── runtime.txt               # Python version (3.11.9)
-│
-├── agents/
-│   ├── SQLAgent.py           # CoT + Few-Shot SQL generation
-│   └── ValidatorAgent.py     # Execution + semantic validation with self-correction
-│
-├── utils/
-│   ├── helpers.py            # Shared utilities (e.g., expectsEmpty)
-│   └── prompts.py            # Prompt constants (reserved for future use)
-│
-├── db/
-│   └── bike_store.py         # Database initialisation (Kaggle download + DuckDB load)
-│
-├── dataMCP/
-│   └── server.py             # MCP server (Model Context Protocol integration, explored)
-│
-└── graph/
-    ├── graph.py              # LangGraph scaffold (explored, not used in final submission)
-    ├── nodes.py              # Node definitions for graph-based workflow
-    └── state.py              # Shared state type for graph
+Organized to be readable and scalable. I use Pydantic schemas to reduce errors and provide the LLM with a consistent output format. The Langgraph workflow, agents, utils (with helpers and prompts) and tests I used are all organized in their own respective folders. 
+
 ```
 
-**Design principles:**
-- **Separation of concerns** — generation and validation are fully decoupled agents; `QueryWriter` is a thin orchestrator.
-- **No persistent DB connections** — every agent opens a fresh DuckDB connection per operation and closes it immediately, preventing file-lock issues.
-- **Pydantic-aligned dataclasses** — `FewShotExample` is a typed `@dataclass` with an optional numpy embedding; schema data is stored as plain dicts. The `schemas/` directory is reserved for Pydantic schema definitions, keeping validation logic extensible.
-- **Environment-variable configuration** — `OLLAMA_HOST` and `OLLAMA_MODEL` let the same codebase run against local Ollama, Carleton's server, or any future endpoint with zero code changes.
+```
+
 
 ---
 
 ## 5. Challenges Faced
 
+I went through lots of trial and error to solve this problem. Originally, I had 3 agents: a QuestionDecomposerAgent, a SchemaExpertAgent, and an SQLGeneration Agent. Although this type of architecture may seem advanced, it was inaccurate and error-prone. After some research, I realized that a multi-agent workflow of that format is not useful for this problem. A degree of error is carried over from each agent, and if the first agent misunderstood the question even slightly, the whole workflow is ruined. I also played around with a RAG (Retrieval Augmented Generation) setup to add more context, but for this dataset, the schema is small enough to fit directly in the prompt. RAG added extra complexity, latency and didn’t help enough to justify it.
+
+After that, I pivoted to my more reliable setup: one “SQL mastermind” agent that focuses on understanding the question and generating SQL with the schema and a few relevant examples in context, and a separate ValidatorAgent that executes the query, fixes obvious failures, and sanity-checks that the output actually matches the question. This approach produced much more accurate results and let me focus on tightening the system’s reliability (instead of debugging a long chain of agents).
 
 ---
 
 ## 6. About Me
 
-Hi, I'm **Ansh Nandwani**, a student at Carleton University with a passion for building practical AI systems. This competition was a great opportunity to move beyond toy examples and build something that genuinely solves a hard NLP problem under real constraints (open-source models only, reproducible environment, evaluation harness).
+Hi! I’m Ansh Kakkar, a 3rd-year Computer Science student at Carleton University. I love building things, joining hackathons and learn by making personal projects in my free time.
 
-A few things I care about that show up in this submission:
-
-- **Shipping working code daily** — the git history reflects consistent, incremental progress rather than a last-minute crunch.
-- **Researching before building** — the `7-nlp-research` and `MultiAgentSaved` branches show I explored the problem space before committing to an architecture.
-- **Clean, maintainable code** — docstrings, typed signatures, environment-variable configuration, and pinned dependencies make this easy for a reviewer (or future me) to pick up.
-- **Going beyond the baseline** — using sentence-transformer embeddings for dynamic few-shot retrieval, a structured validator with self-correction, and a studied understanding of *why* multi-agent isn't always better demonstrates genuine depth.
-
-I hope this submission reflects not just a working solution, but a thoughtful engineering process.
+- Portfolio (RAG Chatbot): https://anshkakkar.dev
+- GitHub (Checkout my projects): https://github.com/anshk8
+- LinkedIn (Let's Connect): https://www.linkedin.com/in/ansh-kakkar
 
 ---
-
-## Appendix — Dependencies
-
-See [requirements.txt](requirements.txt) for fully pinned versions. Key packages:
-
-| Package | Version | Purpose |
-|---|---|---|
-| `duckdb` | 1.1.3 | Database engine |
-| `duckdb-engine` | 0.13.2 | SQLAlchemy dialect for DuckDB |
-| `sqlalchemy` | 2.0.35 | ORM / query builder (schema inspection) |
-| `ollama` | 0.4.7 | Ollama Python client (LLM access) |
-| `sentence-transformers` | 3.3.1 | `all-MiniLM-L6-v2` for few-shot embeddings |
-| `numpy` | 1.26.4 | Cosine similarity computation |
-| `langchain-community` | 0.3.7 | LangGraph / chain utilities |
-| `kagglehub` | 0.3.4 | Dataset download |
-
-**Python version:** 3.11.9 (see [runtime.txt](runtime.txt))
