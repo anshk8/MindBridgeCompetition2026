@@ -235,7 +235,7 @@ After that, I pivoted to my more reliable setup: one “SQL mastermind” agent 
 Hi! I’m Ansh Kakkar, a 3rd-year Computer Science student at Carleton University. I love building things, joining hackathons and learn by making personal projects in my free time.
 
 - Portfolio (RAG Chatbot): https://anshkakkar.dev
-- GitHub (Checkout my projects): https://github.com/anshk8
+- GitHub (Check out my projects): https://github.com/anshk8
 - LinkedIn (Let's Connect): https://www.linkedin.com/in/ansh-kakkar
 
 ---
