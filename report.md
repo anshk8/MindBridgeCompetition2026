@@ -5,6 +5,13 @@
 
 ## Table of Contents
 
+1. [Architecture Overview](#1-architecture-overview-inside-langgraph-workflow)
+2. [Why My Solution Stands Out](#2-why-my-solution-stands-out)
+3. [How to Toggle Features](#3-enabling-features)
+4. [Agent Designs + Techniques](#4-agent-design--techniques)
+5. [Code Organization](#5-code-organization)
+6. [Challenges Faced](#6-challenges-faced)
+7. [About Me](#7-about-me)
 
 ---
 
@@ -53,7 +60,26 @@ Additionally, my submission includes a toggleable feature to generate K Candidat
 
 ```
 
-# 2. Enabling Features
+---
+
+# 2. Why My Solution Stands Out
+
+### Clean Code Organization
+The project is structured into clearly separated folders — `agents/`, `graph/`, `schemas/`, `utils/`, `db/`, and `testing/` making the codebase easy to extend.
+
+### Modern Agentic Framework with LangGraph
+Instead of a tangled chain of `if` statements, the entire workflow is modelled as a **LangGraph state machine** with typed shared state (`graph/State.py`) and conditional edges. This makes the workflow and adding new features simpler. 
+
+### Innovative Features
+- **K-Candidate Generation with Temperature Diversity** — for hard queries the system generates K SQL candidates at varying temperatures, validates each, and selects the best-scoring result, significantly increasing accuracy on complex multi-join problems.
+- **Multi-Conversational Support** — ambiguous or unclear questions are handled gracefully through a conversational clarification loop rather than silently returning a wrong query.
+
+### Proven Prompting Techniques
+Chain-of-Thought (CoT) reasoning, embedding-based Dynamic Few-Shot retrieval, schema grounding with live sample rows and Self-Correction loops are all layered together to push SQL accuracy as high as possible.
+
+---
+
+# 3. Enabling Features
 
 ## Enabling K-candidate generation
 To enable the K-candidate path, toggle the feature flag in the QueryWriter constructor inside 
@@ -75,7 +101,7 @@ To enable the K-candidate path, toggle the feature flag in the QueryWriter const
 
 
 
-# 3. Agent Design + Techniques
+# 4. Agent Design + Techniques
 
 This system is built as a **multi-agent architecture** where each agent has a clearly defined responsibility. The design separates generation, validation, and orchestration to improve reliability and correctness.
 
@@ -169,18 +195,34 @@ The main goal of the system is high SQL accuracy without unnecessary LLM calls. 
 
 ---
 
-## 4. Code Organization
+## 5. Code Organization
 
-Organized to be readable and scalable. I use Pydantic schemas to reduce errors and provide the LLM with a consistent output format. The Langgraph workflow, agents, utils (with helpers and prompts) and tests I used are all organized in their own respective folders. 
+Organized to be readable and scalable. I use Pydantic schemas to reduce errors and provide the LLM with a consistent output format. The LangGraph workflow, agents, utils (with helpers and prompts) and tests I used are all organized in their own respective folders.
 
 ```
-
+carleton_competition_winter_2026/
+│
+├── agents/                         # Contains all agent files
+│
+├── graph/
+│   ├── GraphWorkflow.py            # LangGraph workflow definition & conditional edges
+│   ├── Nodes.py                    # Node functions invoked by the graph
+│   └── State.py                    # Typed shared state schema
+│
+├── schemas/                        # Pydantic output schemas for each agent
+│
+├── utils/
+│   ├── helpers.py                  # Shared utilities used by agents
+│   └── prompts.py                  # System + user prompt builders for agents
+│
+│
+└── testing/                        # End-to-end pipeline tests and saved test results
 ```
 
 
 ---
 
-## 5. Challenges Faced
+## 6. Challenges Faced
 
 I went through lots of trial and error to solve this problem. Originally, I had 3 agents: a QuestionDecomposerAgent, a SchemaExpertAgent, and an SQLGeneration Agent. Although this type of architecture may seem advanced, it was inaccurate and error-prone. After some research, I realized that a multi-agent workflow of that format is not useful for this problem. A degree of error is carried over from each agent, and if the first agent misunderstood the question even slightly, the whole workflow is ruined. I also played around with a RAG (Retrieval Augmented Generation) setup to add more context, but for this dataset, the schema is small enough to fit directly in the prompt. RAG added extra complexity, latency and didn’t help enough to justify it.
 
@@ -188,7 +230,7 @@ After that, I pivoted to my more reliable setup: one “SQL mastermind” agent 
 
 ---
 
-## 6. About Me
+## 7. About Me
 
 Hi! I’m Ansh Kakkar, a 3rd-year Computer Science student at Carleton University. I love building things, joining hackathons and learn by making personal projects in my free time.
 
