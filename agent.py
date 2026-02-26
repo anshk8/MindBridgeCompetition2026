@@ -11,18 +11,12 @@ Architecture:
 """
 
 import os
-import sys
-
-# Add src/ to path so agents/, graph/, schemas/, utils/ resolve correctly
-# (including cross-imports inside those packages)
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-
-from agents.SQLAgent import SQLAgent
-from agents.ValidatorAgent import ValidatorAgent
-from agents.DifficultyRankerAgent import DifficultyRankerAgent
+from src.agents.SQLAgent import SQLAgent
+from src.agents.ValidatorAgent import ValidatorAgent
+from src.agents.DifficultyRankerAgent import DifficultyRankerAgent
 from db.bike_store import get_schema_info
-from utils.helpers import loadSchema, buildSchemaContext
-from graph.GraphWorkflow import SqlGenerationPipeline
+from src.utils.helpers import loadSchema, buildSchemaContext
+from src.graph.GraphWorkflow import SqlGenerationPipeline
 
 
 def get_ollama_client():
@@ -80,6 +74,12 @@ class QueryWriter:
         #Settings, Modifiable by user
         self.k_candidate_enabled = False   # Set False to use fast path for all queries
         self.k_candidate_count = 5
+
+        # When True: SQLAgent classifies each query's intent and the graph routes
+        # accordingly — Irrelevant queries exit early, Ambiguous queries pause to
+        # ask the user a clarifying question before re-generating SQL.
+        # Set False during automated evaluation (avoids stdin prompts).
+        self.multi_conversational_enabled = True
     
     def generate_query(self, prompt: str) -> str:
         """
@@ -105,15 +105,21 @@ class QueryWriter:
         """
         try:
             result = self.graph.invoke({
-                'question':      prompt,
-                'schemaContext': self.schema_context,
-                'kEnabled':      self.k_candidate_enabled,
-                'kCount':        self.k_candidate_count,
+                'question':            prompt,
+                'schemaContext':       self.schema_context,
+                'kEnabled':            self.k_candidate_enabled,
+                'kCount':              self.k_candidate_count,
+                'multiConversational': self.multi_conversational_enabled,
             })
 
-            self._lastGraphResult  = result                        # full state; for tests only
-            self._last_validation  = result.get('validation', {})  # legacy alias; invisible to evaluator
-            return self._clean_sql(result['finalSql'])
+            self._lastGraphResult = result
+            self._last_validation = result.get('validation', {})
+
+            finalSql = result.get('finalSql', '')
+            # Irrelevant queries return a sentinel comment — pass it through as-is
+            if finalSql.startswith('-- IRRELEVANT_QUERY'):
+                return finalSql
+            return self._clean_sql(finalSql)
 
         except Exception as e:
             print(f"⚠️  Error generating query: {e}")

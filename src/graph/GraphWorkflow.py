@@ -33,22 +33,33 @@ Graph topology
 │ generateSqlNode  │    │
 └────────┬─────────┘    │
          │              │
-         ▼              │
-┌────────────────┐      │
-│  validateNode   │      │
-└────────┬───────┘      │
-         │              │
-         └──────┬────────┘
-                ▼
-              END
+  routeAfterGenerate()  │
+  ┌──────┬──────┬───────┤
+  │      │      │       │
+Irrel. Ambig Ambig.  Clear
+       (mc=T) (mc=F)    │
+  │      │      │       ▼
+  │      │      │  ┌─────────────┐
+  │      │    exit │ validateNode │
+  │      │         └──────┬──────┘
+  │      ▼                │
+  │ clarification         │
+  │    Node               │
+  │      │ (loop back)    │
+  ▼      ▼                ▼
+END    genSql            END
 """
 
 from functools import partial
 from langgraph.graph import StateGraph, START, END
 
 from src.schemas.DifficultyRankerSchemas import Difficulty
+from src.schemas.SQLAgentSchemas import QueryIntent
 from src.graph.State import SQLGenerationState
-from src.graph.Nodes import rankNode, generateSqlNode, validateNode, kCandidatesNode
+from src.graph.Nodes import (
+    rankNode, generateSqlNode, clarificationNode,
+    irrelevantNode, ambiguousNode, validateNode, kCandidatesNode,
+)
 
 
 # ────────────────────────────────────────────────────────────────── #
@@ -77,6 +88,33 @@ def routeAfterRank(state: SQLGenerationState) -> str:
     return 'generateSqlNode'
 
 
+def routeAfterGenerate(state: SQLGenerationState) -> str:
+    """
+    Conditional edge after generateSqlNode.
+    - Irrelevant ALWAYS exits early (regardless of multiConversational flag)
+      because sending an empty SQL to the validator causes errors.
+    - Ambiguous + multiConversational=True  → clarificationNode (ask user)
+    - Ambiguous + multiConversational=False → ambiguousNode (exit with hint)
+    - Clear always goes to validateNode.
+    """
+    intent = state.get('queryIntent', QueryIntent.CLEAR.value)
+
+    if intent == QueryIntent.IRRELEVANT.value:
+        return 'irrelevantNode'
+
+    if intent == QueryIntent.AMBIGUOUS.value:
+        if state.get('multiConversational', False):
+            return 'clarificationNode'
+        return 'ambiguousNode'
+
+    return 'validateNode'
+
+
+# routeAfterClarification is no longer needed:
+# clarificationNode enriches the question and loops back to generateSqlNode,
+# which handles all routing (Irrelevant / Ambiguous / Clear) as normal.
+
+
 # ────────────────────────────────────────────────────────────────── #
 # Pipeline builder                                                   #
 # ────────────────────────────────────────────────────────────────── #
@@ -98,11 +136,13 @@ def SqlGenerationPipeline(ranker, sqlAgent, validator):
     """
     graph = StateGraph(SQLGenerationState)
 
-    # Bind agents into each node with partial, then register
-    graph.add_node('rankNode',        partial(rankNode,        ranker=ranker))
-    graph.add_node('generateSqlNode', partial(generateSqlNode, sqlAgent=sqlAgent))
-    graph.add_node('validateNode',    partial(validateNode,    validator=validator))
-    graph.add_node('kCandidatesNode', partial(kCandidatesNode, sqlAgent=sqlAgent, validator=validator))
+    graph.add_node('rankNode',          partial(rankNode,          ranker=ranker))
+    graph.add_node('generateSqlNode',   partial(generateSqlNode,   sqlAgent=sqlAgent))
+    graph.add_node('clarificationNode', clarificationNode)
+    graph.add_node('irrelevantNode',    irrelevantNode)
+    graph.add_node('ambiguousNode',     ambiguousNode)
+    graph.add_node('validateNode',      partial(validateNode,      validator=validator))
+    graph.add_node('kCandidatesNode',   partial(kCandidatesNode,   sqlAgent=sqlAgent, validator=validator))
 
     # ── Edges ─────────────────────────────────────────────────────── #
     # Skip rankNode entirely when kEnabled=False — no reason to classify
@@ -125,8 +165,23 @@ def SqlGenerationPipeline(ranker, sqlAgent, validator):
         },
     )
 
-    graph.add_edge('generateSqlNode', 'validateNode')
+    graph.add_conditional_edges(
+        'generateSqlNode',
+        routeAfterGenerate,
+        {
+            'validateNode':      'validateNode',
+            'clarificationNode': 'clarificationNode',
+            'irrelevantNode':    'irrelevantNode',
+            'ambiguousNode':     'ambiguousNode',
+        },
+    )
+
+    # clarificationNode enriches the question and loops back to generateSqlNode,
+    # which handles all routing (Irrelevant / Ambiguous / Clear) as normal.
+    graph.add_edge('clarificationNode', 'generateSqlNode')
     graph.add_edge('validateNode',    END)
+    graph.add_edge('irrelevantNode',  END)
+    graph.add_edge('ambiguousNode',   END)
     graph.add_edge('kCandidatesNode', END)
 
     return graph.compile()

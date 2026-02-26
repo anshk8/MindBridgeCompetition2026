@@ -24,7 +24,6 @@ class ReviewResult(BaseModel):
         description="A corrected SQL query if rejected, or null if approved."
     )
 
-
 class FixResult(BaseModel):
     """Structured output for the SQL fixer."""
     sql: str = Field(
