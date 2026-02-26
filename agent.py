@@ -11,6 +11,12 @@ Architecture:
 """
 
 import os
+import sys
+
+# Add src/ to path so agents/, graph/, schemas/, utils/ resolve correctly
+# (including cross-imports inside those packages)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+
 from agents.SQLAgent import SQLAgent
 from agents.ValidatorAgent import ValidatorAgent
 from agents.DifficultyRankerAgent import DifficultyRankerAgent

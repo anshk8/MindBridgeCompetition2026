@@ -11,14 +11,14 @@ Flow:
 import os
 import ollama
 from typing import Dict, Any, Optional
-from utils.helpers import executeSQL
-from utils.prompts import (
+from src.utils.helpers import executeSQL
+from src.utils.prompts import (
     buildSemanticReviewPrompt,
     buildCorrectionPrompt,
     buildReviewerSystemPrompt,
     buildFixerSystemPrompt,
 )
-from schemas.ValidatorAgentSchemas import ReviewResult, FixResult
+from src.schemas.ValidatorAgentSchemas import ReviewResult, FixResult
 
 
 class ValidatorAgent:

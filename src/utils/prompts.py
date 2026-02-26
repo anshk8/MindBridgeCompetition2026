@@ -18,8 +18,6 @@ CRITICAL RULES:
 - ONLY use columns that exist in the provided schema
 - The orders table does NOT have pre-calculated total columns
 - Never invent columns like "total_amount", "order_total", or "total_price" unless they exist in the schema
-- NEVER use ANY_VALUE() — it returns a non-deterministic arbitrary value and silently produces wrong answers
-- If you need a non-aggregated column alongside an aggregate, restructure the query (use a subquery, CTE, or correlated WHERE clause) instead
 
 REASONING PROCESS:
 You must think through each query step-by-step using Chain-of-Thought reasoning:
@@ -113,7 +111,6 @@ Rules:
 2. Fix the EXACT error described — do not rewrite the entire query unless necessary.
 3. If the fix requires restructuring (e.g. adding a CTE), do so cleanly.
 4. Never invent columns. Check the schema carefully before referencing any column.
-5. NEVER use ANY_VALUE() as a fix for GROUP BY errors — it returns a non-deterministic value and produces silently wrong results. Instead, add the column to GROUP BY, use a correlated subquery, or use a CTE with a window function (RANK/ROW_NUMBER) to properly resolve the ambiguity.
 
 You will respond in JSON with one field: "sql" containing the corrected SQL query (raw SQL only, no markdown)."""
 

@@ -7,13 +7,13 @@ to generate accurate SQL queries from natural language.
 
 import os
 import numpy as np
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 from dataclasses import dataclass
 import ollama
 from sentence_transformers import SentenceTransformer
-from utils.helpers import loadSchema, buildSchemaContext
-from utils.prompts import buildSystemPrompt, buildUserPrompt, buildFewShotContext
-from schemas.SQLAgentSchemas import SQLResult
+from src.utils.helpers import loadSchema, buildSchemaContext
+from src.utils.prompts import buildSystemPrompt, buildUserPrompt, buildFewShotContext
+from src.schemas.SQLAgentSchemas import SQLResult
 
 
 # Format of the few-shot examples that will help the LLM

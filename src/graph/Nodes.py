@@ -18,7 +18,7 @@ Helpers
     K_TEMPERATURES  — temperature schedule used across K candidates
 """
 
-from graph.State import SQLGenerationState
+from src.graph.State import SQLGenerationState
 
 
 # ────────────────────────────────────────────────────────────────── #

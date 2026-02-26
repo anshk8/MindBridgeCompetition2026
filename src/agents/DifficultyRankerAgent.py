@@ -19,12 +19,12 @@ import os
 import ollama
 from typing import Optional
 
-from utils.helpers import loadSchema, buildSchemaContext
-from utils.prompts import (
+from src.utils.helpers import loadSchema, buildSchemaContext
+from src.utils.prompts import (
     buildDifficultyRankerSystemPrompt,
     buildDifficultyRankerUserPrompt,
 )
-from schemas.DifficultyRankerSchemas import DifficultyResult, Difficulty
+from src.schemas.DifficultyRankerSchemas import DifficultyResult, Difficulty
 
 
 class DifficultyRankerAgent:

@@ -1,3 +1,0 @@
-Questions:
-- For a query such as "Show me all brands" do we expect just brand names or is brand_id and name okay? Or should it only show name to be correct
-- Similarily, if we have a query such as: Show me all customers in New York and the output is the customer_id, firstName, Lastname where city == New York, but the city column is not explicity displayed, is this okay? 

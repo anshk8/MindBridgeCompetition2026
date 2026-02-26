@@ -46,9 +46,9 @@ Graph topology
 from functools import partial
 from langgraph.graph import StateGraph, START, END
 
-from schemas.DifficultyRankerSchemas import Difficulty
-from graph.State import SQLGenerationState
-from graph.Nodes import rankNode, generateSqlNode, validateNode, kCandidatesNode
+from src.schemas.DifficultyRankerSchemas import Difficulty
+from src.graph.State import SQLGenerationState
+from src.graph.Nodes import rankNode, generateSqlNode, validateNode, kCandidatesNode
 
 
 # ────────────────────────────────────────────────────────────────── #
