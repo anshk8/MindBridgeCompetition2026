@@ -1,5 +1,6 @@
 from typing import Literal
 from typing_extensions import TypedDict, NotRequired
+from src.schemas.ValidatorAgentSchemas import ValidationResult
 
 #The shared state that flows through the LangGraph pipeline.
 class SQLGenerationState(TypedDict):
@@ -41,5 +42,5 @@ class SQLGenerationState(TypedDict):
     sql: NotRequired[str]
     queryIntent: NotRequired[Literal['Clear', 'Ambiguous', 'Irrelevant']]
     clarificationQuestion: NotRequired[str]
-    validation: NotRequired[dict]
+    validation: NotRequired[ValidationResult]
     finalSql: NotRequired[str]

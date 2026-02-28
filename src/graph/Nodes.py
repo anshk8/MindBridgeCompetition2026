@@ -20,17 +20,26 @@ Helpers
     K_TEMPERATURES  — temperature schedule used across K candidates
 """
 
+# ────────────────────────────────────────────────────────────────── #
+# Temperature schedule for K-candidate diversity                     #
+# Spread from conservative → creative so at least one low-temp run   #
+# is always included regardless of K.                                #
+# ────────────────────────────────────────────────────────────────── #
+
+K_TEMPERATURES = [0.3, 0.7, 1.0, 0.5, 0.9, 1.2]
+
 import os
 import ollama
 from src.graph.State import SQLGenerationState
 from src.schemas.SQLAgentSchemas import QueryIntent
+from src.schemas.ValidatorAgentSchemas import ValidationResult
 
 
 # ────────────────────────────────────────────────────────────────── #
 # Scoring helper                                                     #
 # ────────────────────────────────────────────────────────────────── #
 
-def scoreCandidate(validation: dict) -> int:
+def scoreCandidate(validation: ValidationResult, question: str = '') -> int:
     """
     Heuristic score for a single validated SQL candidate.
 
@@ -54,14 +63,6 @@ def scoreCandidate(validation: dict) -> int:
         score -= validation.get('semantic_fixes', 0) * 3
     return score
 
-
-# ────────────────────────────────────────────────────────────────── #
-# Temperature schedule for K-candidate diversity                     #
-# Spread from conservative → creative so at least one low-temp run   #
-# is always included regardless of K.                                #
-# ────────────────────────────────────────────────────────────────── #
-
-K_TEMPERATURES = [0.3, 0.7, 1.0, 0.5, 0.9, 1.2]
 
 
 # ────────────────────────────────────────────────────────────────── #
@@ -236,9 +237,15 @@ def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
 
         try:
             result = sqlAgent.generate(state['question'], temperature=temp)
-            sql = result.sql
         except Exception:
             continue
+
+        # Skip non-Clear or blank candidates — validating them wastes LLM calls
+        # and could trigger spurious fix loops on Irrelevant/Ambiguous SQL.
+        if result.intent.value != QueryIntent.CLEAR.value or not result.sql.strip():
+            continue
+
+        sql = result.sql
 
         validation = validator.validateSQL(
             question=state['question'],
@@ -246,7 +253,7 @@ def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
             schemaContext=state['schemaContext'],
         )
 
-        s = scoreCandidate(validation, question=state['question'])
+        s = scoreCandidate(validation)
         candidates.append({
             'sql':        validation['sql'],
             'validation': validation,

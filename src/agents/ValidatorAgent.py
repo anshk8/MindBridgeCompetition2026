@@ -18,7 +18,7 @@ from src.utils.prompts import (
     buildReviewerSystemPrompt,
     buildFixerSystemPrompt,
 )
-from src.schemas.ValidatorAgentSchemas import ReviewResult, FixResult
+from src.schemas.ValidatorAgentSchemas import ReviewResult, FixResult, ValidationResult
 
 
 class ValidatorAgent:
@@ -35,7 +35,7 @@ class ValidatorAgent:
         )
 
 
-    def validateSQL(self, question: str, sql: str, schemaContext: str) -> Dict[str, Any]:
+    def validateSQL(self, question: str, sql: str, schemaContext: str) -> ValidationResult:
         """
         Two-phase validation pipeline.
 
@@ -242,7 +242,7 @@ class ValidatorAgent:
         semantic_fixes: int,
         exec_result: Dict,
         issues: list,
-    ) -> Dict[str, Any]:
+    ) -> ValidationResult:
         """Build a failure result dict when execution never succeeded."""
         return {
             'approved':       False,
