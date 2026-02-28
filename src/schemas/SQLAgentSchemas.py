@@ -12,8 +12,8 @@ from pydantic import BaseModel, Field, model_validator
 
 class QueryIntent(str, Enum):
     """Intent classification of the user's question."""
-    CLEAR      = "Clear"       # Directly answerable from the schema
-    AMBIGUOUS  = "Ambiguous"   # Schema-related but contains a vague term
+    CLEAR = "Clear"       # Directly answerable from the schema
+    AMBIGUOUS = "Ambiguous"   # Schema-related but contains a vague term
     IRRELEVANT = "Irrelevant"  # No connection to the bike store database
 
 
@@ -45,6 +45,7 @@ class SQLResult(BaseModel):
             "If intent is Ambiguous, generate a best-effort SQL using the most likely interpretation."
         )
     )
+
     @model_validator(mode='after')
     def clarification_required_when_ambiguous(self) -> 'SQLResult':
         """
@@ -55,15 +56,8 @@ class SQLResult(BaseModel):
         """
         if self.intent == QueryIntent.AMBIGUOUS and not self.clarification_question.strip():
             # Try to pull a question out of the reasoning (the LLM often writes it there)
-            for line in self.reasoning.splitlines():
-                line = line.strip()
-                if '?' in line and len(line) > 10:
-                    self.clarification_question = line.lstrip('- ').strip()
-                    break
-            # Final fallback
-            if not self.clarification_question.strip():
-                self.clarification_question = (
-                    'Could you clarify what you mean? '
-                    '(e.g. specify a metric like revenue, count, or date range)'
-                )
+
+            self.clarification_question = (
+                'Could you clarify what you mean? Your question likely contains a vague term that could be interpreted in multiple ways.'
+            )
         return self

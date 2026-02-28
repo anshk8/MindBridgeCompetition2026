@@ -183,6 +183,7 @@ def validateNode(state: SQLGenerationState, validator) -> dict:
     """
     Fast path: validate execution + semantics, apply corrections if needed.
     Falls back to 'SELECT 1' if SQL cannot be made to execute.
+    Passes through UNANSWERABLE_QUERY sentinel from ValidatorAgent unchanged.
     """
     validation = validator.validateSQL(
         question=state['question'],
@@ -190,6 +191,9 @@ def validateNode(state: SQLGenerationState, validator) -> dict:
         schemaContext=state['schemaContext'],
     )
     finalSql = validation['sql']
+    # Sentinel from schema-mismatch detection — pass through as-is
+    if finalSql.startswith('-- UNANSWERABLE_QUERY:'):
+        return {'validation': validation, 'finalSql': finalSql}
     if not validation['approved'] and not validation['execution_ok']:
         finalSql = 'SELECT 1'
     return {

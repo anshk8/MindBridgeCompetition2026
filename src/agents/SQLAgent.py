@@ -42,8 +42,7 @@ class SQLAgent:
         self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
         self.exampleBank = self.setupFewShotExamples()
 
-        print(f"✅ SQL Agent initialized with {len(self.exampleBank)} examples")
-
+    #setup examples for embeddings
     def setupFewShotExamples(self) -> List[FewShotExample]:
         examples = [
             FewShotExample(

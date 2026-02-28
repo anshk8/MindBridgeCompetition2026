@@ -7,47 +7,25 @@ All node logic lives in graph/Nodes.py.
 
 Graph topology
 ──────────────
-                       routeFromStart()
-              START ──────────────────────────────────────────┐
-                │                                             │
-         (kEnabled=True)                              (kEnabled=False)
-                │                                             │
-                ▼                                             │
-      ┌──────────────────┐                                    │
-      │    rankNode       │                                    │
-      └────────┬─────────┘                                    │
-               │                                              │
-     routeAfterRank()                                         │
-     ┌──────────┴──────────┐                                  │
-     │                     │                                  │
-(Easy/Medium/Ambiguous)  (Hard)                               │
-     │                     ▼                                  │
-     │       ┌──────────────────────┐                         │
-     │       │   kCandidatesNode    │                         │
-     │       │  (K diverse queries, │                         │
-     │       │   score & pick best) │                         │
-     │       └──────────┬───────────┘                         │
-     │                  │                                      │
-     ▼                  │                                      │
-┌──────────────────┐    │           ◄──────────────────────────┘
-│ generateSqlNode  │    │
-└────────┬─────────┘    │
-         │              │
-  routeAfterGenerate()  │
-  ┌──────┬──────┬───────┤
-  │      │      │       │
-Irrel. Ambig Ambig.  Clear
-       (mc=T) (mc=F)    │
-  │      │      │       ▼
-  │      │      │  ┌─────────────┐
-  │      │    exit │ validateNode │
-  │      │         └──────┬──────┘
-  │      ▼                │
-  │ clarification         │
-  │    Node               │
-  │      │ (loop back)    │
-  ▼      ▼                ▼
-END    genSql            END
+         START ─────────────────────────┐
+           │ (kEnabled=True)            │ (kEnabled=False)
+           ▼                            │
+       rankNode                         │
+           │ (always → generateSqlNode) │
+           └─────────────┐             │
+                         ▼             ▼
+                   generateSqlNode  ◄── (clarify loop-back)
+                         │
+               routeAfterGenerate()
+        ┌────────┬────────┬─────────┬──────────────────┐
+     Irrel.  Ambig.  Ambig.   Clarif.  Clear   Clear+Hard
+             (mc=T)  (mc=F)                    +kEnabled
+        │       │       │        │       │         │
+      exit    ask     exit     loop  validate  kCandidates
+                              back    Node       Node
+        │                              │         │
+        ▼                              ▼         ▼
+       END                            END       END
 """
 
 from functools import partial
@@ -80,22 +58,21 @@ def routeFromStart(state: SQLGenerationState) -> str:
 def routeAfterRank(state: SQLGenerationState) -> str:
     """
     Conditional edge after rankNode.
-    Routes to the K-candidate heavy path when the question is Hard and
-    kEnabled is True; otherwise takes the single-query fast path.
+    Always proceeds to generateSqlNode so intent classification runs on every
+    query. kCandidatesNode is reached later via routeAfterGenerate when the
+    query is confirmed Clear and Hard.
     """
-    if state['kEnabled'] and state['difficulty'] == Difficulty.HARD.value:
-        return 'kCandidatesNode'
     return 'generateSqlNode'
 
 
 def routeAfterGenerate(state: SQLGenerationState) -> str:
     """
     Conditional edge after generateSqlNode.
-    - Irrelevant ALWAYS exits early (regardless of multiConversational flag)
-      because sending an empty SQL to the validator causes errors.
+    - Irrelevant ALWAYS exits early.
     - Ambiguous + multiConversational=True  → clarificationNode (ask user)
     - Ambiguous + multiConversational=False → ambiguousNode (exit with hint)
-    - Clear always goes to validateNode.
+    - Clear + kEnabled + Hard              → kCandidatesNode (heavy path)
+    - Clear (everything else)              → validateNode (fast path)
     """
     intent = state.get('queryIntent', QueryIntent.CLEAR.value)
 
@@ -106,6 +83,10 @@ def routeAfterGenerate(state: SQLGenerationState) -> str:
         if state.get('multiConversational', False):
             return 'clarificationNode'
         return 'ambiguousNode'
+
+    # Clear intent — use k-candidate heavy path only when enabled and Hard
+    if state.get('kEnabled') and state.get('difficulty') == Difficulty.HARD.value:
+        return 'kCandidatesNode'
 
     return 'validateNode'
 
@@ -161,7 +142,6 @@ def SqlGenerationPipeline(ranker, sqlAgent, validator):
         routeAfterRank,
         {
             'generateSqlNode': 'generateSqlNode',
-            'kCandidatesNode': 'kCandidatesNode',
         },
     )
 
@@ -173,6 +153,7 @@ def SqlGenerationPipeline(ranker, sqlAgent, validator):
             'clarificationNode': 'clarificationNode',
             'irrelevantNode':    'irrelevantNode',
             'ambiguousNode':     'ambiguousNode',
+            'kCandidatesNode':   'kCandidatesNode',
         },
     )
 

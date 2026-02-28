@@ -91,8 +91,8 @@ def main():
             sql = agent.generate_query(user_query)
             print(f"\nGenerated SQL:\n{sql}")
 
-            # Skip execution for sentinel values returned by irrelevantNode / ambiguousNode
-            if not sql or sql.startswith('-- IRRELEVANT_QUERY:') or sql.startswith('-- AMBIGUOUS_QUERY:'):
+            # Skip execution for sentinel values returned by irrelevantNode / ambiguousNode / schema-mismatch
+            if not sql or sql.startswith('-- IRRELEVANT_QUERY') or sql.startswith('-- AMBIGUOUS_QUERY:') or sql.startswith('-- UNANSWERABLE_QUERY:'):
                 continue
 
             # Execute the query
