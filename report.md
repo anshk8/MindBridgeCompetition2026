@@ -18,7 +18,9 @@
 # 1. Architecture Overview (Inside LangGraph Workflow)
 
 My submission uses an SQL Generation Agent with various techniques, followed by a Validator Agent for execution and semantic review (For more details, see the Agent section). 
-Additionally, my submission includes a toggleable feature to generate K Candidate Queries for Hard Level problems. This uses a chat-completion endpoint with a diverse range of temperatures to produce different results, ranking each for the best (and hopefully correct) output. 
+Additionally, my submission includes a toggleable feature to generate K Candidate Queries for Hard Level problems. This uses a chat-completion endpoint with a diverse range of temperatures to produce different results, ranking each for the best (and hopefully correct) output.
+
+Every query — regardless of flags — passes through `generateSqlNode` first. This ensures intent classification (Clear / Ambiguous / Irrelevant) always runs before any expensive validation or K-candidate generation. Only a **confirmed Clear + Hard** query is routed to `kCandidatesNode`; everything else takes the fast path or exits early.
 
 ```
                          ┌─────────────────────┐
@@ -38,26 +40,28 @@ Additionally, my submission includes a toggleable feature to generate K Candidat
                                │   │  -> easy/medium/hard  │
                                │   └──────────┬───────────┘
                                │              │
-                               │              |  Query is hard level?
-                               │              │
-                               v              v
-                  ┌──────────────────┐   ┌───────────────────────────┐
-                  │ SQLAgent (K=1)   │   │ SQLAgent (K=5 candidates)  │
-                  │ generate 1 SQL   │   │ diverse temperatures       │
-                  └─────────┬────────┘   └─────────────┬─────────────┘
-                            │                          │
-                            v                          v
-               ┌────────────────────────┐   ┌───────────────────────────────┐
-               │ ValidatorAgent          │   │ ValidatorAgent (per candidate)│
-               │ execute + fix + review  │   │ execute + fix + score/select  │
-               └──────────┬─────────────┘   └──────────────┬────────────────┘
-                          │                                 │
-                          v                                 v
-                 ┌──────────────────┐               ┌──────────────────┐
-                 │     Final SQL    │               │     Final SQL    │
-                 └──────────────────┘               └──────────────────┘
-                          
-
+                               └──────┬───────┘
+                                      │ (always)
+                                      v
+                          ┌──────────────────────┐
+                          │   SQLAgent           │ ◄─── (clarify loop-back)
+                          │   generateSqlNode    │
+                          │   Intent: Clear /    │
+                          │   Ambiguous /        │
+                          │   Irrelevant         │
+                          └────────┬─────────────┘
+                                   │
+              ┌──────────┬─────────┼──────────────┬──────────────────┐
+              │          │         │               │                  │
+           Irrel.    Ambig.    Ambig.          Clear             Clear+Hard
+                     (mc=T)    (mc=F)                            +kEnabled
+              │          │         │               │                  │
+            exit        ask      exit hint    ValidatorAgent     kCandidatesNode
+                    clarify                   execute+fix         K candidates,
+                      Node                   semantic review      score & pick
+              │       │ (loop back)                │                  │
+              v       v                            v                  v
+             END    SQLAgent                   Final SQL          Final SQL
 ```
 
 ---
@@ -73,6 +77,52 @@ Instead of a tangled chain of `if` statements, the entire workflow is modelled a
 ### Innovative Features
 - **K-Candidate Generation with Temperature Diversity** — for hard queries the system generates K SQL candidates at varying temperatures, validates each, and selects the best-scoring result, significantly increasing accuracy on complex multi-join problems.
 - **Multi-Conversational Support** — ambiguous or unclear questions are handled gracefully through a conversational clarification loop rather than silently returning a wrong query.
+
+### Ambiguous Query Handling
+
+When `multiConversational` is enabled, the pipeline detects vague terms (e.g. *best*, *popular*, *worst*) and pauses to ask the user a targeted clarification question. The user's answer is fed back to an LLM which **rewrites the original question** into a clean, unambiguous form before re-running SQL generation — so the model never receives a confusing appended string like `"best products (highest revenue)"`.
+
+```
+Enter your question: Show me the best products
+
+🎯 Intent: Ambiguous
+🤔 What do you mean by 'best' — the most expensive products,
+   highest revenue, or something else?
+Your answer: highest revenue
+
+🔄 Reframed question: Show me the products with the highest revenue
+                      in the bike store database.
+
+Generating...
+Generated SQL:
+   SELECT p.product_name,
+          SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue
+   FROM products p
+   JOIN order_items oi ON p.product_id = oi.product_id
+   GROUP BY p.product_id, p.product_name
+   ORDER BY total_revenue DESC
+```
+
+When `multiConversational` is disabled (e.g. automated evaluation), the pipeline exits cleanly with a hint instead of blocking on `input()`:
+```
+❓ Query was ambiguous — try being more specific.
+   Hint: What do you mean by 'best' — highest revenue, most orders, or something else?
+```
+
+### Irrelevant Query Detection
+
+Queries that have no connection to a bike store database are identified and skipped before any SQL is generated or validated. This prevents wasted LLM calls and avoids returning confusing empty results.
+
+```
+Enter your question: Why am I feeling sick in the store?
+
+🎯 Intent: Irrelevant
+❌ Query has no relevance to the bike store database.
+
+Generated SQL:
+-- IRRELEVANT_QUERY: This question cannot be answered
+                     from the bike store database.
+```
 
 ### Proven Prompting Techniques
 Chain-of-Thought (CoT) reasoning, embedding-based Dynamic Few-Shot retrieval, schema grounding with live sample rows and Self-Correction loops are all layered together to push SQL accuracy as high as possible.
@@ -202,6 +252,7 @@ Organized to be readable and scalable. I use Pydantic schemas to reduce errors a
 ```
 carleton_competition_winter_2026/
 │
+-------
 ├── agents/                         # Contains all agent files
 │
 ├── graph/
@@ -216,7 +267,7 @@ carleton_competition_winter_2026/
 │   └── prompts.py                  # System + user prompt builders for agents
 │
 │
-└── testing/                        # End-to-end pipeline tests and saved test results
+└── testing/                        # Tests and saved test results I used to improve my solution
 ```
 
 

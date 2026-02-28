@@ -19,12 +19,12 @@ import os
 import ollama
 from typing import Optional
 
-from utils.helpers import loadSchema, buildSchemaContext
-from utils.prompts import (
+from src.utils.helpers import loadSchema, buildSchemaContext
+from src.utils.prompts import (
     buildDifficultyRankerSystemPrompt,
     buildDifficultyRankerUserPrompt,
 )
-from schemas.DifficultyRankerSchemas import DifficultyResult, Difficulty
+from src.schemas.DifficultyRankerSchemas import DifficultyResult, Difficulty
 
 
 class DifficultyRankerAgent:
@@ -40,12 +40,13 @@ class DifficultyRankerAgent:
     print(result.tables_needed)
     """
 
-    def __init__(self, dbPath: str = 'bike_store.db', model: Optional[str] = None):
+    def __init__(self, dbPath: str = 'bike_store.db', model: Optional[str] = None, schemaInfo: dict = None):
         """
         Args:
-            dbPath: Path to the DuckDB database file.
-            model:  Ollama model name. Falls back to OLLAMA_MODEL env var,
-                    then to 'qwen2.5-coder:14b'.
+            dbPath:     Path to the DuckDB database file.
+            model:      Ollama model name. Falls back to OLLAMA_MODEL env var,
+                        then to 'qwen2.5-coder:14b'.
+            schemaInfo: Pre-loaded schema dict. If None, loads from dbPath.
         """
         self.dbPath = dbPath
         self.model  = model or os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
@@ -53,8 +54,8 @@ class DifficultyRankerAgent:
             host=os.getenv('OLLAMA_HOST', 'http://localhost:11434')
         )
 
-        # Load schema once; reuse for every ranking call
-        self.schemaInfo    = loadSchema(dbPath)
+        # Reuse pre-loaded schema or load once
+        self.schemaInfo    = schemaInfo or loadSchema(dbPath)
         self.schemaContext = buildSchemaContext(self.schemaInfo)
 
         print(f"✅ DifficultyRankerAgent initialized (model={self.model})")

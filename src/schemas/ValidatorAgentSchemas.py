@@ -8,6 +8,23 @@ well-formed responses without any regex parsing.
 
 from pydantic import BaseModel, Field
 from typing import Optional
+from typing_extensions import TypedDict, NotRequired
+
+
+class ValidationResult(TypedDict):
+    """
+    The structured result returned by ValidatorAgent.validateSQL().
+    Used as the type for the 'validation' field in SQLGenerationState
+    and as the argument type for scoreCandidate().
+    """
+    approved:       bool           # True only if semantic review passed
+    sql:            str            # final SQL (possibly corrected)
+    exec_fixes:     int            # how many execution fixes were needed
+    semantic_fixes: int            # how many semantic fixes were needed
+    execution_ok:   bool           # does the final SQL execute?
+    row_count:      int            # rows returned by the final SQL
+    sample_result:  NotRequired[Optional[str]]  # first row as string, or None
+    issues:         list[str]      # collected warnings / errors
 
 
 class ReviewResult(BaseModel):
@@ -23,7 +40,6 @@ class ReviewResult(BaseModel):
         default=None,
         description="A corrected SQL query if rejected, or null if approved."
     )
-
 
 class FixResult(BaseModel):
     """Structured output for the SQL fixer."""

@@ -11,14 +11,14 @@ Flow:
 import os
 import ollama
 from typing import Dict, Any, Optional
-from utils.helpers import executeSQL
-from utils.prompts import (
+from src.utils.helpers import executeSQL
+from src.utils.prompts import (
     buildSemanticReviewPrompt,
     buildCorrectionPrompt,
     buildReviewerSystemPrompt,
     buildFixerSystemPrompt,
 )
-from schemas.ValidatorAgentSchemas import ReviewResult, FixResult
+from src.schemas.ValidatorAgentSchemas import ReviewResult, FixResult, ValidationResult
 
 
 class ValidatorAgent:
@@ -35,7 +35,7 @@ class ValidatorAgent:
         )
 
 
-    def validateSQL(self, question: str, sql: str, schemaContext: str) -> Dict[str, Any]:
+    def validateSQL(self, question: str, sql: str, schemaContext: str) -> ValidationResult:
         """
         Two-phase validation pipeline.
 
@@ -207,8 +207,9 @@ class ValidatorAgent:
             return {'approved': result.approved, 'issues': result.issues, 'suggestion': suggestion}
         except Exception as e:
             print(f"⚠️  Semantic review error: {e}")
-            # Fail open — don't block valid SQL just because reviewer errored
-            return {'approved': True, 'issues': [f'Review error: {e}'], 'suggestion': None}
+            # Fail closed — let the fix loop attempt a correction rather than
+            # silently approving potentially wrong SQL.
+            return {'approved': False, 'issues': [f'Review error: {e}'], 'suggestion': None}
 
     def fixSQL(
         self, question: str, failedSQL: str, error: str, schemaContext: str
@@ -241,7 +242,7 @@ class ValidatorAgent:
         semantic_fixes: int,
         exec_result: Dict,
         issues: list,
-    ) -> Dict[str, Any]:
+    ) -> ValidationResult:
         """Build a failure result dict when execution never succeeded."""
         return {
             'approved':       False,

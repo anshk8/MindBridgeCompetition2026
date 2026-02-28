@@ -11,12 +11,11 @@ Architecture:
 """
 
 import os
-from agents.SQLAgent import SQLAgent
-from agents.ValidatorAgent import ValidatorAgent
-from agents.DifficultyRankerAgent import DifficultyRankerAgent
-from db.bike_store import get_schema_info
-from utils.helpers import loadSchema, buildSchemaContext
-from graph.GraphWorkflow import SqlGenerationPipeline
+from src.agents.SQLAgent import SQLAgent
+from src.agents.ValidatorAgent import ValidatorAgent
+from src.agents.DifficultyRankerAgent import DifficultyRankerAgent
+from src.utils.helpers import loadSchema, buildSchemaContext
+from src.graph.GraphWorkflow import SqlGenerationPipeline
 
 
 def get_ollama_client():
@@ -56,24 +55,27 @@ class QueryWriter:
             db_path (str): Path to the DuckDB database file.
         """
         self.db_path = db_path
-        self.schema = get_schema_info(db_path=db_path)
-        self.client = get_ollama_client()
-        self.model = get_model_name()
 
-        # Load schema with samples for agents
+        # Load schema once — shared by all agents and the orchestrator
         self.schema_info = loadSchema(db_path)
-        self.schema_context = buildSchemaContext(self.schema_info)  # cached once
+        self.schema_context = buildSchemaContext(self.schema_info)
+        self.schema = self.schema_info  # used by main.py to list table names
 
-        # Initialize Agents
-        self.ranker    = DifficultyRankerAgent(dbPath=db_path)
-        self.agent     = SQLAgent(dbPath=db_path)
+        # Initialize Agents (pass schema to avoid redundant DB loads)
+        self.ranker    = DifficultyRankerAgent(dbPath=db_path, schemaInfo=self.schema_info)
+        self.agent     = SQLAgent(dbPath=db_path, schemaInfo=self.schema_info)
         self.validator = ValidatorAgent(dbPath=db_path)
         # Compile the LangGraph pipeline (agents are captured in node closures)
         self.graph = SqlGenerationPipeline(self.ranker, self.agent, self.validator)
 
-        #Settings, Modifiable by user
+        # Settings
         self.k_candidate_enabled = False   # Set False to use fast path for all queries
         self.k_candidate_count = 5
+
+        # When True: Ambiguous queries pause to ask the user a clarifying question
+        # via stdin before re-generating SQL.
+        # MUST be False during automated evaluation to avoid hanging on input().
+        self.multi_conversational_enabled = False
     
     def generate_query(self, prompt: str) -> str:
         """
@@ -89,29 +91,48 @@ class QueryWriter:
                          Example: "What are the top 5 most expensive products?"
 
         Returns:
-            str: A validated SQL query that answers the question.
-                 Example: "SELECT product_name, list_price FROM products ORDER BY list_price DESC LIMIT 5"
+            str: Either a validated SQL SELECT query, or one of three sentinel
+                 comment strings when the query cannot or should not be executed:
+
+                 • SQL query  — e.g. "SELECT product_name FROM products LIMIT 5"
+                 • "-- IRRELEVANT_QUERY: <reason>"
+                       The question has nothing to do with the database schema.
+                 • "-- AMBIGUOUS_QUERY: <reason>"
+                       The question is too vague to generate a reliable query
+                       and multi-conversational mode is disabled.
+                 • "-- UNANSWERABLE_QUERY: <reason>"
+                       The question is schema-relevant but cannot be answered
+                       (e.g. all candidates failed validation, pipeline error).
 
         Note:
-            - Returns ONLY the SQL query string (no markdown, no explanations)
+            - SQL returns contain no markdown and no trailing semicolons.
+            - Sentinel strings begin with '--' so they are valid SQL comments
+              and will not cause a parse error if passed to a SQL runner, but
+              they will return no rows and should be treated as failure cases.
             - Routed through a LangGraph pipeline (rank → fast path OR k-candidate path)
             - Automatically corrects issues (max 2 correction attempts via ValidatorAgent)
         """
         try:
             result = self.graph.invoke({
-                'question':      prompt,
-                'schemaContext': self.schema_context,
-                'kEnabled':      self.k_candidate_enabled,
-                'kCount':        self.k_candidate_count,
+                'question':            prompt,
+                'schemaContext':       self.schema_context,
+                'kEnabled':            self.k_candidate_enabled,
+                'kCount':              self.k_candidate_count,
+                'multiConversational': self.multi_conversational_enabled,
             })
 
-            self._lastGraphResult  = result                        # full state; for tests only
-            self._last_validation  = result.get('validation', {})  # legacy alias; invisible to evaluator
-            return self._clean_sql(result['finalSql'])
+            self._lastGraphResult = result
+            self._last_validation = result.get('validation', {})
+
+            finalSql = result.get('finalSql', '')
+            # Sentinel comments from irrelevant / unanswerable exits — pass through
+            if finalSql.startswith(('-- IRRELEVANT_QUERY', '-- AMBIGUOUS_QUERY:', '-- UNANSWERABLE_QUERY:')):
+                return finalSql
+            return self._clean_sql(finalSql)
 
         except Exception as e:
             print(f"⚠️  Error generating query: {e}")
-            return "SELECT 1"
+            return f"-- UNANSWERABLE_QUERY: Pipeline error — {e}"
 
 
     def _clean_sql(self, sql: str) -> str:

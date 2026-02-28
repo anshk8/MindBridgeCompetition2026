@@ -7,13 +7,13 @@ to generate accurate SQL queries from natural language.
 
 import os
 import numpy as np
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 from dataclasses import dataclass
 import ollama
 from sentence_transformers import SentenceTransformer
-from utils.helpers import loadSchema, buildSchemaContext
-from utils.prompts import buildSystemPrompt, buildUserPrompt, buildFewShotContext
-from schemas.SQLAgentSchemas import SQLResult
+from src.utils.helpers import loadSchema, buildSchemaContext
+from src.utils.prompts import buildSystemPrompt, buildUserPrompt, buildFewShotContext
+from src.schemas.SQLAgentSchemas import SQLResult, QueryIntent
 
 
 # Format of the few-shot examples that will help the LLM
@@ -26,7 +26,7 @@ class FewShotExample:
 
 
 class SQLAgent:
-    def __init__(self, dbPath: str = 'bike_store.db', model: str = None):
+    def __init__(self, dbPath: str = 'bike_store.db', model: str = None, schemaInfo: dict = None):
         # Model setup
         self.model = model or os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
         self.ollamaClient = ollama.Client(host=os.getenv(
@@ -35,15 +35,15 @@ class SQLAgent:
         # Store DB path but don't keep connection open
         self.dbPath = dbPath
 
-        # Load schema using helper function
-        self.schemaInfo = loadSchema(dbPath)
+        # Load schema using helper function (or reuse pre-loaded)
+        self.schemaInfo = schemaInfo or loadSchema(dbPath)
+        self.schemaContext = buildSchemaContext(self.schemaInfo)  # cached once
 
         # Initialize embedder and examples
         self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
         self.exampleBank = self.setupFewShotExamples()
 
-        print(f"✅ SQL Agent initialized with {len(self.exampleBank)} examples")
-
+    #setup examples for embeddings
     def setupFewShotExamples(self) -> List[FewShotExample]:
         examples = [
             FewShotExample(
@@ -126,6 +126,16 @@ class SQLAgent:
                 sql="SELECT order_id, customer_id, order_date FROM orders WHERE order_date >= '2017-03-01' AND order_date < '2017-04-01'",
                 explanation="Date filtering using comparison operators or BETWEEN"
             ),
+            FewShotExample(
+                question="Which store has the highest total revenue?",
+                sql="SELECT s.store_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM stores s JOIN orders o ON s.store_id = o.store_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY s.store_id, s.store_name ORDER BY total_revenue DESC LIMIT 1",
+                explanation="Store revenue must go through orders not stocks. stocks is inventory only. Correct path: stores -> orders -> order_items"
+            ),
+            FewShotExample(
+                question="Show total revenue per store",
+                sql="SELECT s.store_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM stores s JOIN orders o ON s.store_id = o.store_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY s.store_id, s.store_name ORDER BY total_revenue DESC",
+                explanation="Store revenue must go through orders not stocks. stocks is inventory only. Correct path: stores -> orders -> order_items"
+            ),
         ]
 
         # Compute embeddings for all examples (will be used to match similar examples for queries)
@@ -153,21 +163,13 @@ class SQLAgent:
         similarities.sort(key=lambda x: x[0], reverse=True)
         return [ex for _, ex in similarities[:topK]]
 
-    def generate(self, question: str, temperature: float = 0.7) -> str:
+    def generate(self, question: str, temperature: float = 0.7) -> SQLResult:
         """
         Generate SQL query using Chain-of-Thought reasoning and Few-Shot Learning.
+        Also classifies query intent (Clear / Ambiguous / Irrelevant).
 
-        This method:
-        1. Retrieves similar examples from the example bank
-        2. Builds rich schema context with sample data
-        3. Constructs a Chain-of-Thought prompt
-        4. Generates SQL using the LLM
-
-        Args:
-            question: The natural language question.
-            temperature: Higher values produce more diverse outputs, for K-candidate generation method.
-
-        Note: This method only generates SQL. Validation should be done separately.
+        Returns:
+            SQLResult with .sql, .intent, and .clarification_question fields.
         """
         print(f"\nGenerating Query for: {question}")
 
@@ -177,27 +179,21 @@ class SQLAgent:
 
         # Step 2: Build contexts
         print("🏗️  Building prompt contexts...")
-        schemaContext = buildSchemaContext(self.schemaInfo)
+        schemaContext = self.schemaContext  # use cached schema context
         fewShotContext = buildFewShotContext(similarExamples)
 
         # Step 3: Build system and user prompts
         systemPrompt = buildSystemPrompt()
         userPrompt = buildUserPrompt(question, schemaContext, fewShotContext)
 
-        # Step 4: Generate initial SQL
+        # Step 4: Generate SQL + classify intent
         print(f"🤖 Generating SQL with {self.model}...")
         try:
             response = self.ollamaClient.chat(
                 model=self.model,
                 messages=[
-                    {
-                        'role': 'system',
-                        'content': systemPrompt
-                    },
-                    {
-                        'role': 'user',
-                        'content': userPrompt
-                    }
+                    {'role': 'system', 'content': systemPrompt},
+                    {'role': 'user',   'content': userPrompt},
                 ],
                 format=SQLResult.model_json_schema(),
                 options={'temperature': temperature}
@@ -205,10 +201,10 @@ class SQLAgent:
 
             result = SQLResult.model_validate_json(response['message']['content'])
             print(f"💭 Reasoning: {result.reasoning}")
-            sql = result.sql.rstrip(';')
-
-            print(f"✅ Generated SQL: {sql}")
-            return sql
+            print(f"🎯 Intent: {result.intent.value}")
+            result.sql = result.sql.rstrip(';')
+            print(f"✅ Generated SQL: {result.sql}")
+            return result
 
         except Exception as e:
             print(f"❌ Error generating SQL: {e}")
