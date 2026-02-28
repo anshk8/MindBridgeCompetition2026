@@ -25,8 +25,8 @@ class SQLResult(BaseModel):
     intent: QueryIntent = Field(
         description=(
             "Clear: the question is unambiguous and answerable from the schema. "
-            "Ambiguous: the question relates to the database but contains a vague term "
-            "(e.g. 'best', 'recent', 'top') that could produce multiple different queries. "
+            "Ambiguous: the question relates to the database but contains a vague or under-specified term "
+            "(e.g. 'best', 'top') that could produce multiple different queries without further clarification. "
             "Irrelevant: the question has no connection to the bike store database whatsoever."
         )
     )

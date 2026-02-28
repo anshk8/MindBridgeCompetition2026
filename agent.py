@@ -91,11 +91,24 @@ class QueryWriter:
                          Example: "What are the top 5 most expensive products?"
 
         Returns:
-            str: A validated SQL query that answers the question.
-                 Example: "SELECT product_name, list_price FROM products ORDER BY list_price DESC LIMIT 5"
+            str: Either a validated SQL SELECT query, or one of three sentinel
+                 comment strings when the query cannot or should not be executed:
+
+                 • SQL query  — e.g. "SELECT product_name FROM products LIMIT 5"
+                 • "-- IRRELEVANT_QUERY: <reason>"
+                       The question has nothing to do with the database schema.
+                 • "-- AMBIGUOUS_QUERY: <reason>"
+                       The question is too vague to generate a reliable query
+                       and multi-conversational mode is disabled.
+                 • "-- UNANSWERABLE_QUERY: <reason>"
+                       The question is schema-relevant but cannot be answered
+                       (e.g. all candidates failed validation, pipeline error).
 
         Note:
-            - Returns ONLY the SQL query string (no markdown, no explanations)
+            - SQL returns contain no markdown and no trailing semicolons.
+            - Sentinel strings begin with '--' so they are valid SQL comments
+              and will not cause a parse error if passed to a SQL runner, but
+              they will return no rows and should be treated as failure cases.
             - Routed through a LangGraph pipeline (rank → fast path OR k-candidate path)
             - Automatically corrects issues (max 2 correction attempts via ValidatorAgent)
         """
