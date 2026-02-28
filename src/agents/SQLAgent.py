@@ -26,7 +26,7 @@ class FewShotExample:
 
 
 class SQLAgent:
-    def __init__(self, dbPath: str = 'bike_store.db', model: str = None):
+    def __init__(self, dbPath: str = 'bike_store.db', model: str = None, schemaInfo: dict = None):
         # Model setup
         self.model = model or os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
         self.ollamaClient = ollama.Client(host=os.getenv(
@@ -35,8 +35,9 @@ class SQLAgent:
         # Store DB path but don't keep connection open
         self.dbPath = dbPath
 
-        # Load schema using helper function
-        self.schemaInfo = loadSchema(dbPath)
+        # Load schema using helper function (or reuse pre-loaded)
+        self.schemaInfo = schemaInfo or loadSchema(dbPath)
+        self.schemaContext = buildSchemaContext(self.schemaInfo)  # cached once
 
         # Initialize embedder and examples
         self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
@@ -178,7 +179,7 @@ class SQLAgent:
 
         # Step 2: Build contexts
         print("🏗️  Building prompt contexts...")
-        schemaContext = buildSchemaContext(self.schemaInfo)
+        schemaContext = self.schemaContext  # use cached schema context
         fewShotContext = buildFewShotContext(similarExamples)
 
         # Step 3: Build system and user prompts

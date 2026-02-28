@@ -14,7 +14,6 @@ import os
 from src.agents.SQLAgent import SQLAgent
 from src.agents.ValidatorAgent import ValidatorAgent
 from src.agents.DifficultyRankerAgent import DifficultyRankerAgent
-from db.bike_store import get_schema_info
 from src.utils.helpers import loadSchema, buildSchemaContext
 from src.graph.GraphWorkflow import SqlGenerationPipeline
 
@@ -56,30 +55,27 @@ class QueryWriter:
             db_path (str): Path to the DuckDB database file.
         """
         self.db_path = db_path
-        self.schema = get_schema_info(db_path=db_path)
-        self.client = get_ollama_client()
-        self.model = get_model_name()
 
-        # Load schema with samples for agents
+        # Load schema once — shared by all agents and the orchestrator
         self.schema_info = loadSchema(db_path)
-        self.schema_context = buildSchemaContext(self.schema_info)  # cached once
+        self.schema_context = buildSchemaContext(self.schema_info)
+        self.schema = self.schema_info  # used by main.py to list table names
 
-        # Initialize Agents
-        self.ranker    = DifficultyRankerAgent(dbPath=db_path)
-        self.agent     = SQLAgent(dbPath=db_path)
+        # Initialize Agents (pass schema to avoid redundant DB loads)
+        self.ranker    = DifficultyRankerAgent(dbPath=db_path, schemaInfo=self.schema_info)
+        self.agent     = SQLAgent(dbPath=db_path, schemaInfo=self.schema_info)
         self.validator = ValidatorAgent(dbPath=db_path)
         # Compile the LangGraph pipeline (agents are captured in node closures)
         self.graph = SqlGenerationPipeline(self.ranker, self.agent, self.validator)
 
-        #Settings, Modifiable by user
+        # Settings
         self.k_candidate_enabled = False   # Set False to use fast path for all queries
         self.k_candidate_count = 5
 
-        # When True: SQLAgent classifies each query's intent and the graph routes
-        # accordingly — Irrelevant queries exit early, Ambiguous queries pause to
-        # ask the user a clarifying question before re-generating SQL.
-        # Set False during automated evaluation (avoids stdin prompts).
-        self.multi_conversational_enabled = True
+        # When True: Ambiguous queries pause to ask the user a clarifying question
+        # via stdin before re-generating SQL.
+        # MUST be False during automated evaluation to avoid hanging on input().
+        self.multi_conversational_enabled = False
     
     def generate_query(self, prompt: str) -> str:
         """
@@ -116,14 +112,14 @@ class QueryWriter:
             self._last_validation = result.get('validation', {})
 
             finalSql = result.get('finalSql', '')
-            # Irrelevant queries return a sentinel comment — pass it through as-is
-            if finalSql.startswith('-- IRRELEVANT_QUERY'):
+            # Sentinel comments from irrelevant / unanswerable exits — pass through
+            if finalSql.startswith(('-- IRRELEVANT_QUERY', '-- AMBIGUOUS_QUERY:', '-- UNANSWERABLE_QUERY:')):
                 return finalSql
             return self._clean_sql(finalSql)
 
         except Exception as e:
             print(f"⚠️  Error generating query: {e}")
-            return "SELECT 1"
+            return f"-- UNANSWERABLE_QUERY: Pipeline error — {e}"
 
 
     def _clean_sql(self, sql: str) -> str:

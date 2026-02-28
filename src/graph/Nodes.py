@@ -23,13 +23,14 @@ Helpers
 import os
 import ollama
 from src.graph.State import SQLGenerationState
+from src.schemas.SQLAgentSchemas import QueryIntent
 
 
 # ────────────────────────────────────────────────────────────────── #
 # Scoring helper                                                     #
 # ────────────────────────────────────────────────────────────────── #
 
-def scoreCandidate(validation: dict) -> int:
+def scoreCandidate(validation: dict, question: str = '') -> int:
     """
     Heuristic score for a single validated SQL candidate.
 
@@ -39,6 +40,11 @@ def scoreCandidate(validation: dict) -> int:
         +5   returns at least one row
         -3   per execution fix applied by ValidatorAgent
         -3   per semantic fix applied by ValidatorAgent
+
+    Non-LLM heuristic penalties (applied to the final SQL text):
+        -10  question asks "top N" but SQL has no LIMIT
+        -8   question asks "top/best/highest/lowest" but SQL has no ORDER BY
+        -6   question asks "top N" but result row_count >> N (suggests missing LIMIT)
     """
     score = 0
     if not validation.get('execution_ok'):
@@ -51,6 +57,31 @@ def scoreCandidate(validation: dict) -> int:
             score += 5
         score -= validation.get('exec_fixes', 0) * 3
         score -= validation.get('semantic_fixes', 0) * 3
+
+    # ── Non-LLM heuristic penalties ──────────────────────────────── #
+    sql_upper = (validation.get('sql') or '').upper()
+    q_lower = question.lower()
+
+    # Detect "top N" pattern in question
+    import re
+    top_n_match = re.search(r'\btop\s+(\d+)\b', q_lower)
+    ranking_words = any(w in q_lower for w in ('top ', 'best ', 'highest ', 'lowest ', 'most expensive', 'cheapest'))
+
+    # Penalty: question mentions ranking words but SQL has no ORDER BY
+    if ranking_words and 'ORDER BY' not in sql_upper:
+        score -= 8
+
+    # Penalty: question asks "top N" but SQL has no LIMIT
+    if top_n_match and 'LIMIT' not in sql_upper:
+        score -= 10
+
+    # Penalty: question asks "top N" but result has far more rows than N
+    if top_n_match:
+        expected_n = int(top_n_match.group(1))
+        actual_rows = validation.get('row_count', 0)
+        if actual_rows > expected_n * 2:
+            score -= 6
+
     return score
 
 
@@ -79,12 +110,20 @@ def rankNode(state: SQLGenerationState, ranker) -> dict:
 
 def generateSqlNode(state: SQLGenerationState, sqlAgent) -> dict:
     """Fast path: generate SQL and classify intent at default temperature."""
-    result = sqlAgent.generate(state['question'])
-    return {
-        'sql':                   result.sql,
-        'queryIntent':           result.intent.value,
-        'clarificationQuestion': result.clarification_question,
-    }
+    try:
+        result = sqlAgent.generate(state['question'])
+        return {
+            'sql':                   result.sql,
+            'queryIntent':           result.intent.value,
+            'clarificationQuestion': result.clarification_question,
+        }
+    except Exception as e:
+        print(f"⚠️  SQL generation failed ({e}), returning minimal fallback")
+        return {
+            'sql':                   f'-- UNANSWERABLE_QUERY: SQL generation failed — {e}',
+            'queryIntent':           QueryIntent.CLEAR.value,
+            'clarificationQuestion': '',
+        }
 
 
 def _reframeQuestion(original: str, clarification_q: str, user_answer: str) -> str:
@@ -168,8 +207,8 @@ def irrelevantNode(state: SQLGenerationState) -> dict:
 def ambiguousNode(state: SQLGenerationState) -> dict:
     """
     Exit node for ambiguous queries when multiConversational=False.
-    Instead of silently validating a best-guess SQL, surfaces the
-    clarification question so the user knows to rephrase.
+    NOTE: Currently unreachable — ambiguous + !mc routes to validateNode
+    to preserve the best-effort SQL. Kept for potential future use.
     """
     clarification_q = state.get('clarificationQuestion', 'Could you be more specific?')
     print(f"\n\u2753 Query was ambiguous — try being more specific.")
@@ -182,12 +221,22 @@ def ambiguousNode(state: SQLGenerationState) -> dict:
 def validateNode(state: SQLGenerationState, validator) -> dict:
     """
     Fast path: validate execution + semantics, apply corrections if needed.
-    Falls back to 'SELECT 1' if SQL cannot be made to execute.
-    Passes through UNANSWERABLE_QUERY sentinel from ValidatorAgent unchanged.
+    Returns UNANSWERABLE_QUERY sentinel when SQL cannot be made to execute.
     """
+    sql = state.get('sql', '')
+    # If upstream already flagged as unanswerable, pass through
+    if sql.startswith('-- UNANSWERABLE_QUERY:'):
+        fallback = {
+            'approved': False, 'sql': sql, 'exec_fixes': 0,
+            'semantic_fixes': 0, 'execution_ok': False,
+            'row_count': 0, 'sample_result': None,
+            'issues': ['Upstream marked unanswerable'],
+        }
+        return {'validation': fallback, 'finalSql': sql}
+
     validation = validator.validateSQL(
         question=state['question'],
-        sql=state['sql'],
+        sql=sql,
         schemaContext=state['schemaContext'],
     )
     finalSql = validation['sql']
@@ -195,7 +244,8 @@ def validateNode(state: SQLGenerationState, validator) -> dict:
     if finalSql.startswith('-- UNANSWERABLE_QUERY:'):
         return {'validation': validation, 'finalSql': finalSql}
     if not validation['approved'] and not validation['execution_ok']:
-        finalSql = 'SELECT 1'
+        issues_summary = '; '.join(validation.get('issues', [])[:3]) or 'All correction attempts failed'
+        finalSql = f'-- UNANSWERABLE_QUERY: {issues_summary}'
     return {
         'validation': validation,
         'finalSql':   finalSql,
@@ -226,7 +276,7 @@ def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
             schemaContext=state['schemaContext'],
         )
 
-        s = scoreCandidate(validation)
+        s = scoreCandidate(validation, question=state['question'])
         candidates.append({
             'sql':        validation['sql'],
             'validation': validation,
@@ -238,20 +288,22 @@ def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
             break
 
     if not candidates:
+        sentinel = '-- UNANSWERABLE_QUERY: All K candidates failed to generate'
         fallback = {
-            'approved': False, 'sql': 'SELECT 1',
+            'approved': False, 'sql': sentinel,
             'exec_fixes': 0, 'semantic_fixes': 0,
             'execution_ok': False, 'row_count': 0,
             'sample_result': None,
             'issues': ['All candidates failed to generate'],
         }
-        return {'sql': 'SELECT 1', 'validation': fallback, 'finalSql': 'SELECT 1'}
+        return {'sql': sentinel, 'validation': fallback, 'finalSql': sentinel}
 
     best = max(candidates, key=lambda c: c['score'])
 
     finalSql = best['sql']
     if not best['validation']['approved'] and not best['validation']['execution_ok']:
-        finalSql = 'SELECT 1'
+        issues_summary = '; '.join(best['validation'].get('issues', [])[:3]) or 'No viable candidate'
+        finalSql = f'-- UNANSWERABLE_QUERY: {issues_summary}'
 
     return {
         'sql':        best['sql'],

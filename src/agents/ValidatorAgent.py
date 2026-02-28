@@ -207,8 +207,9 @@ class ValidatorAgent:
             return {'approved': result.approved, 'issues': result.issues, 'suggestion': suggestion}
         except Exception as e:
             print(f"⚠️  Semantic review error: {e}")
-            # Fail open — don't block valid SQL just because reviewer errored
-            return {'approved': True, 'issues': [f'Review error: {e}'], 'suggestion': None}
+            # Fail closed — let the fix loop attempt a correction rather than
+            # silently approving potentially wrong SQL.
+            return {'approved': False, 'issues': [f'Review error: {e}'], 'suggestion': None}
 
     def fixSQL(
         self, question: str, failedSQL: str, error: str, schemaContext: str

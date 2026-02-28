@@ -2,13 +2,6 @@ import duckdb
 from typing import Dict, Any
 
 
-def expectsEmpty(question: str) -> bool:
-    """Check if question expects empty results"""
-    emptyKeywords = ['never', 'no ', 'none',
-                     'zero', 'empty', 'without', 'don\'t', 'not']
-    return any(kw in question.lower() for kw in emptyKeywords)
-
-
 def loadSchema(db_path: str) -> Dict[str, Any]:
     """
     Load schema information for all tables in the database, including column details and sample data.

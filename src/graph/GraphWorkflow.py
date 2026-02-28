@@ -70,7 +70,7 @@ def routeAfterGenerate(state: SQLGenerationState) -> str:
     Conditional edge after generateSqlNode.
     - Irrelevant ALWAYS exits early.
     - Ambiguous + multiConversational=True  → clarificationNode (ask user)
-    - Ambiguous + multiConversational=False → ambiguousNode (exit with hint)
+    - Ambiguous + multiConversational=False → validateNode (validate best-effort SQL)
     - Clear + kEnabled + Hard              → kCandidatesNode (heavy path)
     - Clear (everything else)              → validateNode (fast path)
     """
@@ -82,7 +82,8 @@ def routeAfterGenerate(state: SQLGenerationState) -> str:
     if intent == QueryIntent.AMBIGUOUS.value:
         if state.get('multiConversational', False):
             return 'clarificationNode'
-        return 'ambiguousNode'
+        # Non-interactive: validate the best-effort SQL instead of discarding it
+        return 'validateNode'
 
     # Clear intent — use k-candidate heavy path only when enabled and Hard
     if state.get('kEnabled') and state.get('difficulty') == Difficulty.HARD.value:
