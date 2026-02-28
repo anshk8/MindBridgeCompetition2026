@@ -30,7 +30,7 @@ from src.schemas.SQLAgentSchemas import QueryIntent
 # Scoring helper                                                     #
 # ────────────────────────────────────────────────────────────────── #
 
-def scoreCandidate(validation: dict, question: str = '') -> int:
+def scoreCandidate(validation: dict) -> int:
     """
     Heuristic score for a single validated SQL candidate.
 
@@ -40,11 +40,6 @@ def scoreCandidate(validation: dict, question: str = '') -> int:
         +5   returns at least one row
         -3   per execution fix applied by ValidatorAgent
         -3   per semantic fix applied by ValidatorAgent
-
-    Non-LLM heuristic penalties (applied to the final SQL text):
-        -10  question asks "top N" but SQL has no LIMIT
-        -8   question asks "top/best/highest/lowest" but SQL has no ORDER BY
-        -6   question asks "top N" but result row_count >> N (suggests missing LIMIT)
     """
     score = 0
     if not validation.get('execution_ok'):
@@ -57,31 +52,6 @@ def scoreCandidate(validation: dict, question: str = '') -> int:
             score += 5
         score -= validation.get('exec_fixes', 0) * 3
         score -= validation.get('semantic_fixes', 0) * 3
-
-    # ── Non-LLM heuristic penalties ──────────────────────────────── #
-    sql_upper = (validation.get('sql') or '').upper()
-    q_lower = question.lower()
-
-    # Detect "top N" pattern in question
-    import re
-    top_n_match = re.search(r'\btop\s+(\d+)\b', q_lower)
-    ranking_words = any(w in q_lower for w in ('top ', 'best ', 'highest ', 'lowest ', 'most expensive', 'cheapest'))
-
-    # Penalty: question mentions ranking words but SQL has no ORDER BY
-    if ranking_words and 'ORDER BY' not in sql_upper:
-        score -= 8
-
-    # Penalty: question asks "top N" but SQL has no LIMIT
-    if top_n_match and 'LIMIT' not in sql_upper:
-        score -= 10
-
-    # Penalty: question asks "top N" but result has far more rows than N
-    if top_n_match:
-        expected_n = int(top_n_match.group(1))
-        actual_rows = validation.get('row_count', 0)
-        if actual_rows > expected_n * 2:
-            score -= 6
-
     return score
 
 
@@ -206,9 +176,9 @@ def irrelevantNode(state: SQLGenerationState) -> dict:
 
 def ambiguousNode(state: SQLGenerationState) -> dict:
     """
-    Exit node for ambiguous queries when multiConversational=False.
-    NOTE: Currently unreachable — ambiguous + !mc routes to validateNode
-    to preserve the best-effort SQL. Kept for potential future use.
+    Exit node for ambiguous queries when multiConversational=False
+    (or on a second clarification pass where mc was reset to False).
+    Exits cleanly with a hint so the caller knows to ask the user to rephrase.
     """
     clarification_q = state.get('clarificationQuestion', 'Could you be more specific?')
     print(f"\n\u2753 Query was ambiguous — try being more specific.")
