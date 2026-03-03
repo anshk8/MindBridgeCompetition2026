@@ -75,12 +75,6 @@ class QueryWriter:
     def generate_query(self, prompt: str) -> str:
         """
         Generate a SQL query from a natural language prompt.
-
-        This method is called by the evaluation system. It orchestrates:
-        1. SQL generation via SQLAgent (Chain-of-Thought + Few-Shot)
-        2. Validation and correction via ValidatorAgent
-        3. Returns the final validated SQL query
-
         Args:
             prompt (str): The natural language question from the user.
                          Example: "What are the top 5 most expensive products?"
@@ -169,5 +163,3 @@ class QueryWriter:
         """Clean up resources (called at end of session)"""
         if hasattr(self.agent, 'close'):
             self.agent.close()
-        if hasattr(self.ranker, 'close'):
-            self.ranker.close()

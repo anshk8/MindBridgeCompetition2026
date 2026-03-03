@@ -180,70 +180,51 @@ def ambiguousNode(state: SQLGenerationState) -> dict:
 
 def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
     """
-    Generate up to K SQL candidates at varied temperatures (K = len(K_TEMPERATURES)),
-    validate each, score them, and return the best.
-    Exits early as soon as a perfect candidate (executes + approved) is found,
-    so easy/medium queries almost always cost exactly one generation.
+    Validate up to K SQL candidates and return the best one.
 
-    The SQL produced by generateSqlNode is reused as the first candidate so
-    we never call sqlAgent.generate() twice for the same question at the same
-    temperature.
+    The plan is a flat list of (temperature, sql_or_None) pairs:
+      - Slot 0 reuses the SQL already produced by generateSqlNode (no extra LLM call).
+      - Slots 1..K-1 generate fresh candidates at varied temperatures.
+
+    The loop breaks as soon as a candidate both executes and is semantically
+    approved — easy queries almost always exit after the first slot.
     """
-    k = len(K_TEMPERATURES)
-    candidates = []
-
-    # ── Step 0: reuse the SQL already produced by generateSqlNode ────────
-    # This avoids a redundant second generation for the same question.
     initial_sql = state.get('sql', '').strip()
-    if initial_sql:
-        print("♻️  Reusing generate result as first candidate...")
-        validation = validator.validateSQL(
-            question=state['question'],
-            sql=initial_sql,
-            schemaContext=state['schemaContext'],
-        )
-        s = scoreCandidate(validation)
-        candidates.append({'sql': validation['sql'], 'validation': validation, 'score': s})
-        # Early exit: perfect first candidate — skip all further generations
-        if validation['execution_ok'] and validation['approved']:
-            best = candidates[0]
-            return {
-                'sql':        best['sql'],
-                'validation': best['validation'],
-                'finalSql':   best['sql'],
-            }
 
-    # ── Steps 1..k-1: generate additional candidates at varied temps ─────
-    start_idx = 1 if initial_sql else 0
-    for i in range(k - start_idx):
-        temp = K_TEMPERATURES[i + start_idx]
+    # First slot reuses existing SQL; remaining slots generate at varied temps.
+    # Each entry: (temperature, prebuilt_sql | None)
+    generation_plan = [(K_TEMPERATURES[0], initial_sql)] + [(t, None) for t in K_TEMPERATURES[1:]]
 
-        try:
-            result = sqlAgent.generate(state['question'], temperature=temp)
-        except Exception:
-            continue
-
-        # Skip non-Clear or blank candidates — validating them wastes LLM calls
-        # and could trigger spurious fix loops on Irrelevant/Ambiguous SQL.
-        if result.intent.value != QueryIntent.CLEAR.value or not result.sql.strip():
-            continue
-
-        sql = result.sql
+    candidates = []
+    for temp, prebuilt_sql in generation_plan:
+        if prebuilt_sql is not None:
+            # Sentinel from a failed generateSqlNode — skip rather than waste
+            # MAX_EXEC_FIXES LLM calls trying to "fix" a SQL comment.
+            if prebuilt_sql.startswith('--'):
+                continue
+            sql = prebuilt_sql
+            print("♻️  Reusing generate result as first candidate...")
+        else:
+            try:
+                result = sqlAgent.generate(state['question'], temperature=temp)
+            except Exception:
+                continue
+            # Skip non-Clear or blank results — validating them wastes LLM calls
+            if result.intent.value != QueryIntent.CLEAR.value or not result.sql.strip():
+                continue
+            sql = result.sql
 
         validation = validator.validateSQL(
             question=state['question'],
             sql=sql,
             schemaContext=state['schemaContext'],
         )
-
-        s = scoreCandidate(validation)
         candidates.append({
             'sql':        validation['sql'],
             'validation': validation,
-            'score':      s,
+            'score':      scoreCandidate(validation),
         })
 
-        # Early exit: perfect score — no need to generate more
         if validation['execution_ok'] and validation['approved']:
             break
 
@@ -260,10 +241,11 @@ def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
 
     best = max(candidates, key=lambda c: c['score'])
 
-    finalSql = best['sql']
-    if not best['validation']['approved'] and not best['validation']['execution_ok']:
+    if not best['validation']['execution_ok']:
         issues_summary = '; '.join(best['validation'].get('issues', [])[:3]) or 'No viable candidate'
         finalSql = f'-- UNANSWERABLE_QUERY: {issues_summary}'
+    else:
+        finalSql = best['sql']
 
     return {
         'sql':        best['sql'],

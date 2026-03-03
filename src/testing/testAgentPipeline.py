@@ -254,7 +254,15 @@ class SQLAgentTester:
                 return result
             graphState = getattr(self.writer, '_lastGraphResult', None)
             if graphState:
-                result['graphPath'] = 'generateSqlNode → kCandidatesNode'
+                # Derive graphPath from queryIntent rather than hard-coding, so
+                # Irrelevant/Ambiguous exits are reflected correctly in route stats.
+                intent = graphState.get('queryIntent', '')
+                if intent == 'Irrelevant':
+                    result['graphPath'] = 'generateSqlNode → irrelevantNode'
+                elif intent == 'Ambiguous':
+                    result['graphPath'] = 'generateSqlNode → ambiguousNode'
+                else:
+                    result['graphPath'] = 'generateSqlNode → kCandidatesNode'
                 v = graphState.get('validation', {})
             else:
                 # Legacy fallback
@@ -386,9 +394,13 @@ class SQLAgentTester:
         print(f"  Total semantic fixes:  {total_semantic_fixes}  (avg {avg_sf:.2f}/query)")
 
         # LangGraph routing stats
-        k_path = sum(1 for r in results if r.get('graphPath') == 'generateSqlNode → kCandidatesNode')
+        route_counts = {}
+        for r in results:
+            path = r.get('graphPath') or 'unknown'
+            route_counts[path] = route_counts.get(path, 0) + 1
         print(f"\n🗺️  LangGraph Routing:")
-        print(f"  generateSqlNode → kCandidatesNode: {k_path}")
+        for path, count in sorted(route_counts.items()):
+            print(f"  {path}: {count}")
 
         # Breakdown by test-category
         print("\n\nBreakdown by Test Category:")

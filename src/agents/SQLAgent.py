@@ -209,7 +209,7 @@ class SQLAgent:
             {'role': 'user',   'content': userPrompt},
         ]
 
-        # ReAct tool-use loop (max 2 rounds), provides any information needed with tool calls
+        # ReAct structure tool-use loop which will provides any information needed with tool calls (loops twice)
         for round_idx in range(2):
             print(f"🤖 ReAct round {round_idx} — calling {self.model}...")
             response = self.ollamaClient.chat(

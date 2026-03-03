@@ -155,11 +155,11 @@ This system is built as a **multi-agent architecture** where each agent has a cl
 ### Techniques Used:
 
 #### **ReAct Tool-Use Loop (Reasoning + Acting)**
-This is the big one. Instead of hoping the LLM remembers every column name and value correctly, the SQLAgent wraps its generation in a **ReAct loop** — the model can reason about the question, decide it needs to verify something, call a tool, get real data back, and *then* write the SQL.
+Instead of hoping the LLM remembers every column name and value correctly, the SQLAgent wraps its generation in a **ReAct loop** where the model can reason about the question, decide it needs to verify something, call a tool, get real data back and enrich its information before generating the SQL.
 
-The loop runs up to 2 tool rounds before requiring a final answer. If the LLM decides it doesn't need any tools, it skips straight to SQL generation — so simple queries have zero overhead.
+The loop runs up to 2 tool rounds before requiring a final answer. If the LLM decides it doesn't need any tools, it skips straight to SQL generation, so we can reduce overhead for simple queries.
 
-**Three lightweight tools are available:**
+**Three read only database tools are available:**
 
 | Tool | What it does | When the model uses it |
 |---|---|---|
@@ -167,10 +167,8 @@ The loop runs up to 2 tool rounds before requiring a final answer. If the LLM de
 | `search_value(term)` | Fuzzy-searches all VARCHAR columns across all tables | Finding which table/column contains a value the user mentioned |
 | `get_columns(table)` | Returns all column names and types for a table | Confirming exact column names before SELECT or WHERE |
 
-All tools are **read-only**, validate table/column names against the loaded schema before touching the database (preventing injection), and return plain lists that get injected back into the conversation.
-
 ```
-Example: User asks "Show me orders with Electra bikes"
+Example USAGE: User asks "Show me orders with Electra bikes"
 
 ReAct Round 0:
   LLM thinks: "User mentioned 'Electra' — I should verify where this value lives."
@@ -188,12 +186,13 @@ ReAct Round 1:
                 WHERE b.brand_name = 'Electra'
 ```
 
-If the ReAct JSON parsing ever fails (the LLM returns malformed output), the agent automatically falls back to the original single-shot generation path with a strict Pydantic schema constraint — so it never crashes.
+If all tool rounds complete without the model calling a tool, the agent proceeds directly to the final structured call with a strict Pydantic schema constraint (`format=SQLResult.model_json_schema()`) — so it never crashes.
 
 ```
-agents/tools/db_tools.py    # Tool implementations (get_distinct_values, search_value, get_columns)
-agents/SQLAgent.py          # ReAct loop in generate(), fallback in _singleShotGenerate()
-utils/prompts.py            # Tool descriptions + ReAct prompt builder (buildReActUserPrompt)
+src/agents/tools/tools.py        # Tool implementations (get_distinct_values, search_value, get_columns)
+src/agents/tools/toolHelpers.py  # getTools() schema definitions + executeTool() dispatcher
+src/agents/SQLAgent.py           # ReAct loop in generate()
+src/utils/prompts.py             # System + user prompt builders
 ```
 
 #### **Chain-of-Thought (CoT) Prompting**  
@@ -278,25 +277,29 @@ Organized to be readable and scalable. I use Pydantic schemas to reduce errors a
 ```
 carleton_competition_winter_2026/
 │
--------
-├── agents/                         # SQLAgent + ValidatorAgent
-│   └── tools/                      # Lightweight DB lookup tools for ReAct
-│       ├── __init__.py
-│       └── db_tools.py             # get_distinct_values, search_value, get_columns
+├── agent.py                        # Competition interface (QueryWriter)
+├── main.py                         # Interactive CLI entry point
 │
-├── graph/
-│   ├── GraphWorkflow.py            # LangGraph workflow definition & conditional edges
-│   ├── Nodes.py                    # Node functions (generateSqlNode, kCandidatesNode, ...)
-│   └── State.py                    # Typed shared state schema
-│
-├── schemas/                        # Pydantic output schemas for SQLAgent + ValidatorAgent
-│
-├── utils/
-│   ├── helpers.py                  # Shared utilities used by agents
-│   └── prompts.py                  # System + user prompt builders + ReAct prompt builders
-│
-│
-└── testing/                        # Tests and saved test results I used to improve my solution
+└── src/
+    ├── agents/
+    │   ├── SQLAgent.py             # SQL generation with CoT + Few-Shot + ReAct tool-use loop
+    │   ├── ValidatorAgent.py       # Execution + semantic review with self-correction
+    │   └── tools/
+    │       ├── tools.py            # get_distinct_values, search_value, get_columns
+    │       └── toolHelpers.py      # getTools() definitions + executeTool() to call tool
+    │
+    ├── graph/
+    │   ├── GraphWorkflow.py        # LangGraph workflow definition & conditional edges
+    │   ├── Nodes.py                # Node functions (generateSqlNode, kCandidatesNode, ...)
+    │   └── State.py                # Typed shared state schema
+    │
+    ├── schemas/                    # Pydantic output schemas for SQLAgent + ValidatorAgent
+    │
+    ├── utils/
+    │   ├── helpers.py              # loadSchema, buildSchemaContext, executeSQL
+    │   └── prompts.py              # System + user prompt builders
+    │
+    └── testing/                    # Test suite and saved test results
 ```
 
 
@@ -306,7 +309,7 @@ carleton_competition_winter_2026/
 
 I went through lots of trial and error to solve this problem. Originally, I had 3 agents: a QuestionDecomposerAgent, a SchemaExpertAgent, and an SQLGeneration Agent. Although this type of architecture may seem advanced, it was inaccurate and error-prone. After some research, I realized that a multi-agent workflow of that format is not useful for this problem. A degree of error is carried over from each agent, and if the first agent misunderstood the question even slightly, the whole workflow is ruined. I also played around with a RAG (Retrieval Augmented Generation) setup to add more context, but for this dataset, the schema is small enough to fit directly in the prompt. RAG added extra complexity, latency and didn’t help enough to justify it.
 
-After that, I pivoted to my more reliable setup: one “SQL mastermind” agent that focuses on understanding the question and generating SQL with the schema and a few relevant examples in context, and a separate ValidatorAgent that executes the query, fixes obvious failures, and sanity-checks that the output actually matches the question. This approach produced much more accurate results and let me focus on tightening the system’s reliability (instead of debugging a long chain of agents).
+After that, I pivoted to my more reliable setup one "MASTER" SQL agent that focuses on understanding the question and generating SQL supported by a separate ValidatorAgent that executes the query, fixes obvious failures, and semantic checks that the output actually matches the question. This approach produced much more accurate results and let me focus on tightening the system’s reliability (instead of debugging a long chain of agents).
 
 ---
 

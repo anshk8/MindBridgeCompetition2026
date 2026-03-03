@@ -1,16 +1,8 @@
 """
 agents/tools/db_tools.py
 
-Lightweight, read-only database lookup tools used by the ReAct loop
-inside SQLAgent.generate().  Each function takes the minimum arguments
-it needs and returns a plain Python object (list / str) that is safe
-to serialise into an LLM prompt.
-
-Security notes
-──────────────
-• All queries are parameterless SELECT DISTINCTs with hard LIMIT caps.
-• Table / column names are validated against the in-memory schema dict
-  before being interpolated — no arbitrary user strings hit the DB.
+Read-only database lookup tools used by the ReAct loop
+inside SQLAgent.generate().
 """
 
 import duckdb
