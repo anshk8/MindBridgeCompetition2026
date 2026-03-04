@@ -1,5 +1,5 @@
 """
-agents/tools/db_tools.py
+agents/tools/tools.py
 
 Read-only database lookup tools used by the ReAct loop
 inside SQLAgent.generate().
