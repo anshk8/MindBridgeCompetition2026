@@ -1,15 +1,6 @@
 """
 SQL Generator Agent
-
-Uses Chain-of-Thought reasoning and Dynamic Few-Shot Learning
-to generate accurate SQL queries from natural language.
-
-ReAct tool-use (max 2 rounds):
-    Uses Ollama's native tool-calling interface. The model receives the
-    same system + user prompt as always, plus a tools= list. If the model
-    decides to call a tool, the result is appended and the loop continues.
-    After the loop a final structured call with format=SQLResult schema
-    produces the validated result — identical to the original single call.
+- Chain of Thought reasoning + Few-Shot Learning + ReAct loop tool-use
 """
 
 import os
@@ -160,7 +151,7 @@ class SQLAgent:
         return examples
 
     def findSimilarQueryExamples(self, question: str, topK: int = 3) -> List[FewShotExample]:
-        """Retrieve most similar few-shot examples using semantic similarity"""
+        """Retrieve most similar few-shot examples using cosine similarity"""
         questionEmbedding = self.embedder.encode(
             question, convert_to_numpy=True)
 
@@ -177,26 +168,17 @@ class SQLAgent:
 
     def generate(self, question: str, temperature: float = 0.7) -> SQLResult:
         """
-        Generate SQL using CoT reasoning, Few-Shot examples, and native ReAct tool-use.
-
-        Flow:
-          1. Build the same system + user prompt as the original single-shot call.
-          2. Tool-use loop (max 2 rounds): call the LLM with tools=self.getTools().
-             If the model calls a tool → execute it, append result, loop again.
-             If no tool_calls in the response → exit the loop early.
-          3. One final structured call with format=SQLResult schema (no tools) —
-             identical to the original single call, but the conversation now
-             contains any tool observations the model gathered.
+        Generate SQL with agent
 
         Returns:
             SQLResult with .sql, .intent, and .clarification_question fields.
         """
         print(f"\nGenerating Query for: {question}")
 
-        # Step 1: Retrieve similar examples
+        #Retrieve similar examples
         similarExamples = self.findSimilarQueryExamples(question, topK=3)
 
-        # Step 2: Build contexts
+        #Build contexts
         schemaContext = self.schemaContext
         fewShotContext = buildFewShotContext(similarExamples)
 
@@ -210,8 +192,7 @@ class SQLAgent:
         ]
 
         # ReAct structure tool-use loop which will provides any information needed with tool calls (loops twice)
-        for round_idx in range(2):
-            print(f"🤖 ReAct round {round_idx} — calling {self.model}...")
+        for _ in range(2):
             response = self.ollamaClient.chat(
                 model=self.model,
                 messages=messages,
@@ -219,15 +200,15 @@ class SQLAgent:
                 options={'temperature': temperature},
             )
 
+            #If not tool calls happened, break early to avoid unnecessary round
             tool_calls = response['message'].get('tool_calls') or []
             if not tool_calls:
-                # Model chose not to call any tool — exit loop
                 break
 
             # Append the assistant's tool-call message
             messages.append(response['message'])
 
-            # Execute each tool and feed results back
+            # Execute each tool and give results back to LLM
             for tc in tool_calls:
                 func_name = tc['function']['name']
                 result_lines = executeTool(tc, db_path=self.dbPath, schema_info=self.schemaInfo)

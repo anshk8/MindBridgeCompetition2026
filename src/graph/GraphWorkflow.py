@@ -1,28 +1,4 @@
-"""
-graph/GraphWorkflow.py
-
-Assembles and compiles the LangGraph pipeline for SQL query generation.
-This file is responsible only for graph topology (nodes, edges, routing).
-All node logic lives in graph/Nodes.py.
-
-Graph topology
-──────────────
-                         START
-                           │
-                           ▼
-                   generateSqlNode  ◄── (clarify loop-back)
-                           │
-               routeAfterGenerate()
-        ┌────────┬────────┬─────────┬─────────────┐
-     Irrel.  Ambig.  Ambig.   Clarif.       Clear
-             (mc=T)  (mc=F)
-        │       │       │        │              │
-      exit    ask     exit     loop       kCandidatesNode
-                              back
-        │                              │
-        ▼                              ▼
-       END                            END
-"""
+#GraphWorkflow.py: Defines the SQL generation workflow as a LangGraph StateGraph.
 
 from functools import partial
 from langgraph.graph import StateGraph, START, END
@@ -35,10 +11,7 @@ from src.graph.Nodes import (
 )
 
 
-# ────────────────────────────────────────────────────────────────── #
-# Routing                                                            #
-# ────────────────────────────────────────────────────────────────── #
-
+#Helper function for the graph routing
 def routeAfterGenerate(state: SQLGenerationState) -> str:
     """
     Conditional edge after generateSqlNode.
@@ -60,14 +33,7 @@ def routeAfterGenerate(state: SQLGenerationState) -> str:
     return 'kCandidatesNode'
 
 
-# clarificationNode enriches the question and loops back to generateSqlNode,
-# which handles all routing (Irrelevant / Ambiguous / Clear) as normal.
-
-
-# ────────────────────────────────────────────────────────────────── #
-# Pipeline builder                                                   #
-# ────────────────────────────────────────────────────────────────── #
-
+#Build the LangGraph pipeline with nodes and edges and compile for use
 def SqlGenerationPipeline(sqlAgent, validator):
     """
     Build and compile the SQL generation LangGraph pipeline.

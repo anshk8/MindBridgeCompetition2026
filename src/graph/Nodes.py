@@ -1,73 +1,13 @@
-"""
-graph/Nodes.py
+#Nodes.py: Defines the nodes used in the LangGraph workflow for SQL generation.
 
-Node implementations for the SQL generation LangGraph pipeline.
-Each node is a plain function: (state, ...agents) -> dict.
-Agents are bound via functools.partial in GraphWorkflow.py at compile time.
-
-Nodes
-─────
-    generateSqlNode   — generates SQL + classifies intent (Clear/Ambiguous/Irrelevant)
-    clarificationNode — prompts user for clarification and loops back to generateSqlNode
-    irrelevantNode    — exits early for queries with no relevance to the database
-    ambiguousNode     — exits early for ambiguous queries when multiConversational=False
-    kCandidatesNode   — generates up to K candidates at varied temperatures, picks best
-
-Helpers
-───────
-    scoreCandidate  — heuristic scorer for a ValidatorAgent result dict
-    K_TEMPERATURES  — temperature schedule used across K candidates (first = default)
-"""
-
-# ────────────────────────────────────────────────────────────────── #
-# Temperature schedule for K-candidate diversity                     #
-# Spread from conservative → creative so at least one low-temp run   #
-# is always included regardless of K.                                #
-# ────────────────────────────────────────────────────────────────── #
-
-K_TEMPERATURES = [0.7, 0.3, 1.0, 0.5, 0.9, 1.2]
 
 import os
 import ollama
 from src.graph.State import SQLGenerationState
 from src.schemas.SQLAgentSchemas import QueryIntent
-from src.schemas.ValidatorAgentSchemas import ValidationResult
+from src.utils.helpers import scoreCandidate
+from src.utils.constants import K_TEMPERATURES
 
-
-# ────────────────────────────────────────────────────────────────── #
-# Scoring helper                                                     #
-# ────────────────────────────────────────────────────────────────── #
-
-def scoreCandidate(validation: ValidationResult, question: str = '') -> int:
-    """
-    Heuristic score for a single validated SQL candidate.
-
-    Scoring breakdown:
-        +50  executes without error
-        +40  approved by semantic review
-        +5   returns at least one row
-        -3   per execution fix applied by ValidatorAgent
-        -3   per semantic fix applied by ValidatorAgent
-    """
-    score = 0
-    if not validation.get('execution_ok'):
-        score -= 99999999999
-    else:
-        score += 50
-        if validation.get('approved'):
-            score += 40
-        if validation.get('row_count', 0) > 0:
-            score += 5
-        score -= validation.get('exec_fixes', 0) * 3
-        score -= validation.get('semantic_fixes', 0) * 3
-    return score
-
-
-
-# ────────────────────────────────────────────────────────────────── #
-# Nodes                                                              #
-# Agents are injected via functools.partial in GraphWorkflow.py.     #
-# ────────────────────────────────────────────────────────────────── #
 
 def generateSqlNode(state: SQLGenerationState, sqlAgent) -> dict:
     """Fast path: generate SQL and classify intent at default temperature."""
@@ -86,11 +26,10 @@ def generateSqlNode(state: SQLGenerationState, sqlAgent) -> dict:
         }
 
 
-def _reframeQuestion(original: str, clarification_q: str, user_answer: str) -> str:
+def generateReframedQuestion(original: str, clarification_q: str, user_answer: str) -> str:
     """
-    Use a lightweight LLM call to turn the original ambiguous question + the
-    clarification Q&A into a single clean, unambiguous question.
-    Falls back to simple concatenation if the call fails.
+    Use a lightweight LLM call to turn a original ambiguous question + the
+    clarification info into a single clean, unambiguous question.
     """
     prompt = (
         "A user asked an ambiguous question about a bike store database. "
@@ -114,16 +53,14 @@ def _reframeQuestion(original: str, clarification_q: str, user_answer: str) -> s
         print(f"🔄 Reframed question: {reframed}")
         return reframed
     except Exception as e:
-        print(f"⚠️  Reframing failed ({e}), falling back to concatenation.")
+        #If it fails we just concat the original question with the user's answer to give the next node more to work with, but we don't want this step to be a hard failure point since it's just an enrichment rather than a core part of the pipeline.
         return f"{original} ({user_answer})"
 
 
 def clarificationNode(state: SQLGenerationState) -> dict:
     """
-    Multi-conversational clarification node.
-    Prompts the user to resolve the ambiguity, uses an LLM to reframe the
-    original question into a clean unambiguous form, then loops back to
-    generateSqlNode for proper re-generation and routing.
+    Multi-conversational clarification node when user query is ambiguous.
+    Prompts the user to resolve the ambiguity and generate a reframed question.
 
     Sets multiConversational=False to prevent infinite clarification loops:
     if the enriched question is still Ambiguous, generateSqlNode will fall
@@ -136,29 +73,25 @@ def clarificationNode(state: SQLGenerationState) -> dict:
     try:
         user_answer = input("Your answer: ").strip()
         if user_answer:
-            enriched_question = _reframeQuestion(
+            enriched_question = generateReframedQuestion(
                 original=state['question'],
                 clarification_q=clarification_q,
                 user_answer=user_answer,
             )
-    except (EOFError, KeyboardInterrupt):
-        # Non-interactive environment — proceed with original question
-        pass
-
-    # Return enriched question only; generateSqlNode handles re-generation
-    # and all downstream routing (Irrelevant / Ambiguous / Clear).
+    except Exception as e:
+        print(f"Failed to get user input")
+      
     return {
         'question':            enriched_question,
-        'multiConversational': False,  # prevent re-entry on a second ambiguous result
+        'multiConversational': False,  
     }
 
 
 def irrelevantNode(state: SQLGenerationState) -> dict:
     """
     Exit node for queries with no relation to the bike store database.
-    Returns a sentinel finalSql so the caller knows to surface the message.
     """
-    print("\n\u274c Query has no relevance to the bike store database.")
+    print("\n Query has no relevance to the bike store database.")
     return {
         'finalSql': '-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.',
     }
@@ -166,9 +99,7 @@ def irrelevantNode(state: SQLGenerationState) -> dict:
 
 def ambiguousNode(state: SQLGenerationState) -> dict:
     """
-    Exit node for ambiguous queries when multiConversational=False
-    (or on a second clarification pass where mc was reset to False).
-    Exits cleanly with a hint so the caller knows to ask the user to rephrase.
+    Handle Ambiguous queries when multi-conversational clarification is disabled. Exit and provide a hint to the user.
     """
     clarification_q = state.get('clarificationQuestion', 'Could you be more specific?')
     print(f"\n\u2753 Query was ambiguous — try being more specific.")
@@ -180,19 +111,14 @@ def ambiguousNode(state: SQLGenerationState) -> dict:
 
 def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
     """
-    Validate up to K SQL candidates and return the best one.
-
-    The plan is a flat list of (temperature, sql_or_None) pairs:
-      - Slot 0 reuses the SQL already produced by generateSqlNode (no extra LLM call).
-      - Slots 1..K-1 generate fresh candidates at varied temperatures.
+    Generate up to K SQL candidates and return the best one that executes and is semantically approved.
 
     The loop breaks as soon as a candidate both executes and is semantically
-    approved — easy queries almost always exit after the first slot.
+    approved. Prevents using lots of LLM calls for easy/medium questions while still allowing hard questions to benefit.
     """
     initial_sql = state.get('sql', '').strip()
 
     # First slot reuses existing SQL; remaining slots generate at varied temps.
-    # Each entry: (temperature, prebuilt_sql | None)
     generation_plan = [(K_TEMPERATURES[0], initial_sql)] + [(t, None) for t in K_TEMPERATURES[1:]]
 
     candidates = []
@@ -203,13 +129,13 @@ def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
             if prebuilt_sql.startswith('--'):
                 continue
             sql = prebuilt_sql
-            print("♻️  Reusing generate result as first candidate...")
         else:
             try:
                 result = sqlAgent.generate(state['question'], temperature=temp)
             except Exception:
                 continue
-            # Skip non-Clear or blank results — validating them wastes LLM calls
+
+            # Re-generations can bypass the graph router with different temps, so AMBIGUOUS/IRRELEVANT must be filtered here directly.
             if result.intent.value != QueryIntent.CLEAR.value or not result.sql.strip():
                 continue
             sql = result.sql
@@ -225,9 +151,11 @@ def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
             'score':      scoreCandidate(validation),
         })
 
+        #If candidate executes and is approved, break early
         if validation['execution_ok'] and validation['approved']:
             break
 
+    #Fallback
     if not candidates:
         sentinel = '-- UNANSWERABLE_QUERY: All K candidates failed to generate'
         fallback = {
@@ -239,6 +167,7 @@ def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
         }
         return {'sql': sentinel, 'validation': fallback, 'finalSql': sentinel}
 
+    #take best candidate by score and return its SQL and details
     best = max(candidates, key=lambda c: c['score'])
 
     if not best['validation']['execution_ok']:

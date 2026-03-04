@@ -3,13 +3,6 @@ SQL Query Writer Agent - Ansh Kakkar Submission for Carleton MinBridge Competiti
 
 This file contains the QueryWriter class that generates SQL queries from natural language.
 Implement your agent logic in this file.
-
-Architecture:
-- QueryWriter: Competition interface (this file)
-- SQLAgent: Advanced SQL generator with CoT + Few-Shot Learning + ReAct tool-use
-- ValidatorAgent: SQL validation and correction Agent
-- K-Candidate generation is always active; easy/medium queries exit after the first
-  passing attempt, hard queries benefit from temperature diversity and retry.
 """
 
 import os
@@ -57,12 +50,12 @@ class QueryWriter:
         """
         self.db_path = db_path
 
-        # Load schema once — shared by all agents and the orchestrator
+        # Load schema once to avoid redundant DB calls
         self.schema_info = loadSchema(db_path)
         self.schema_context = buildSchemaContext(self.schema_info)
         self.schema = self.schema_info  # used by main.py to list table names
 
-        # Initialize Agents (pass schema to avoid redundant DB loads)
+        # Initialize Agents (passing schema to avoid redundant DB loads)
         self.agent     = SQLAgent(dbPath=db_path, schemaInfo=self.schema_info)
         self.validator = ValidatorAgent(dbPath=db_path)
 
@@ -92,17 +85,9 @@ class QueryWriter:
                  • "-- UNANSWERABLE_QUERY: <reason>"
                        The question is schema-relevant but cannot be answered
                        (e.g. all candidates failed validation, pipeline error).
-
-        Note:
-            - SQL returns contain no markdown and no trailing semicolons.
-            - Sentinel strings begin with '--' so they are valid SQL comments
-              and will not cause a parse error if passed to a SQL runner, but
-              they will return no rows and should be treated as failure cases.
-            - Routed through a LangGraph pipeline (generate → k-candidate validation)
-            - K-candidates exit early on first passing result; temperature diversity
-              provides retry resilience for hard queries at no extra cost for easy ones.
-            - Automatically corrects issues (max 2 correction attempts via ValidatorAgent)
         """
+
+        #Initiate generation by invoking the graph with the initial state
         try:
             result = self.graph.invoke({
                 'question':            prompt,
@@ -129,9 +114,7 @@ class QueryWriter:
 
     def _clean_sql(self, sql: str) -> str:
         """
-        Clean SQL output to meet competition requirements.
-
-        Removes:
+        Clean SQL output by removing...
         - Markdown code blocks
         - Extra whitespace
         - Trailing semicolons (optional based on competition rules)
