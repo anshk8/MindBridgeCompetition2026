@@ -229,6 +229,8 @@ class SQLAgent:
         result = SQLResult.model_validate_json(final_response['message']['content'])
         result.sql = result.sql.rstrip(';')
         print(f"💭 Reasoning: {result.reasoning}")
+
+        #TODO: Remove from here, should Print Validtator as this can print incorrect SQL which is useful for debugging and shows the improvement after validation step
         print(f"✅ Generated SQL: {result.sql}")
         return result
 

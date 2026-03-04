@@ -1,12 +1,149 @@
 """
-queriesToTest.py - Extended Test Query Bank
+queriesToTest.py — All test query banks.
 
-Contains medium, hard, and ambiguous/nonsense queries for stress-testing
-the SQL agent. None of these are in the few-shot example bank.
+BASIC_QUERIES   — easy / medium / hard / hard_advanced (core coverage)
+EXTENDED_QUERIES — medium / hard / ambiguous / nonsense (stress tests)
+ALL_QUERIES     — merged view of both banks, used by testAgentPipeline.py
 
 Import in your test file:
-    from queriesToTest import EXTENDED_QUERIES
+    from src.testing.queriesToTest import ALL_QUERIES
 """
+
+
+BASIC_QUERIES = {
+
+    "easy": [
+        {
+            "id": "E1",
+            "question": "List all stores in California",
+            "expected_sql": "SELECT store_name, city, state FROM stores WHERE state = 'CA'",
+            "notes": "Simple WHERE filter on state column"
+        },
+        {
+            "id": "E2",
+            "question": "What is the cheapest product in the database?",
+            "expected_sql": "SELECT product_name, list_price FROM products ORDER BY list_price ASC LIMIT 1",
+            "notes": "MIN via ORDER BY ASC + LIMIT"
+        },
+        {
+            "id": "E3",
+            "question": "How many products were made in 2018?",
+            "expected_sql": "SELECT COUNT(*) FROM products WHERE model_year = 2018",
+            "notes": "COUNT with WHERE on year column"
+        },
+        {
+            "id": "E4",
+            "question": "Show all staff emails",
+            "expected_sql": "SELECT first_name, last_name, email FROM staffs",
+            "notes": "Simple SELECT specific columns"
+        },
+        {
+            "id": "E5",
+            "question": "What is the total quantity of all products in stock?",
+            "expected_sql": "SELECT SUM(quantity) FROM stocks",
+            "notes": "Simple SUM aggregation"
+        },
+    ],
+
+    "medium": [
+        {
+            "id": "M1",
+            "question": "Show all orders placed in January 2017",
+            "expected_sql": "SELECT order_id, order_date FROM orders WHERE order_date BETWEEN '2017-01-01' AND '2017-01-31'",
+            "notes": "Date range filtering with BETWEEN"
+        },
+        {
+            "id": "M2",
+            "question": "Which brands have more than 10 products?",
+            "expected_sql": "SELECT b.brand_name, COUNT(p.product_id) as product_count FROM brands b JOIN products p ON b.brand_id = p.brand_id GROUP BY b.brand_name HAVING COUNT(p.product_id) > 10",
+            "notes": "JOIN with GROUP BY and HAVING clause"
+        },
+        {
+            "id": "M3",
+            "question": "List all staff members and their store names",
+            "expected_sql": "SELECT s.first_name, s.last_name, st.store_name FROM staffs s JOIN stores st ON s.store_id = st.store_id",
+            "notes": "Two-table JOIN"
+        },
+        {
+            "id": "M4",
+            "question": "Find products priced between 1000 and 2000 dollars",
+            "expected_sql": "SELECT product_name, brand_id, list_price FROM products WHERE list_price BETWEEN 1000 AND 2000",
+            "notes": "BETWEEN operator for range"
+        },
+        {
+            "id": "M5",
+            "question": "How many orders has each customer placed?",
+            "expected_sql": "SELECT c.first_name, c.last_name, COUNT(o.order_id) as order_count FROM customers c LEFT JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id, c.first_name, c.last_name",
+            "notes": "LEFT JOIN with GROUP BY"
+        },
+    ],
+
+    "hard": [
+        {
+            "id": "H1",
+            "question": "What is the average order value for each customer?",
+            "expected_sql": "SELECT c.first_name, c.last_name, AVG(oi.quantity * oi.list_price * (1 - oi.discount)) as avg_order_value FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name",
+            "notes": "3-table JOIN with calculated AVG"
+        },
+        {
+            "id": "H2",
+            "question": "Which products have never been ordered?",
+            "expected_sql": "SELECT product_name, product_id FROM products WHERE product_id NOT IN (SELECT DISTINCT product_id FROM order_items)",
+            "notes": "NOT IN subquery for exclusion"
+        },
+        {
+            "id": "H3",
+            "question": "Show the top 3 customers by total purchase amount",
+            "expected_sql": "SELECT c.first_name, c.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) as total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name ORDER BY total_spent DESC LIMIT 3",
+            "notes": "Multi-table JOIN with complex calculation, ORDER BY, LIMIT"
+        },
+        {
+            "id": "H4",
+            "question": "For each store, show the most expensive product in stock",
+            "expected_sql": "SELECT s.store_name, p.product_name, p.list_price FROM stores s JOIN stocks st ON s.store_id = st.store_id JOIN products p ON st.product_id = p.product_id WHERE (s.store_id, p.list_price) IN (SELECT st2.store_id, MAX(p2.list_price) FROM stocks st2 JOIN products p2 ON st2.product_id = p2.product_id GROUP BY st2.store_id)",
+            "notes": "Correlated subquery with MAX per group"
+        },
+        {
+            "id": "H5",
+            "question": "What percentage of total revenue does each category contribute?",
+            "expected_sql": "SELECT c.category_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) as category_revenue, (SUM(oi.quantity * oi.list_price * (1 - oi.discount)) * 100.0 / (SELECT SUM(quantity * list_price * (1 - discount)) FROM order_items)) as revenue_percentage FROM categories c JOIN products p ON c.category_id = p.category_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY c.category_name ORDER BY revenue_percentage DESC",
+            "notes": "Multi-table JOIN with subquery for percentage calculation"
+        },
+    ],
+
+    "hard_advanced": [
+        {
+            "id": "H6",
+            "question": "Which staff members manage other staff, and how many people does each manager supervise?",
+            "expected_sql": "SELECT m.first_name, m.last_name, m.staff_id, COUNT(s.staff_id) as direct_reports FROM staffs m JOIN staffs s ON m.staff_id = CAST(s.manager_id AS BIGINT) GROUP BY m.staff_id, m.first_name, m.last_name ORDER BY direct_reports DESC",
+            "notes": "Self-join on staffs table"
+        },
+        {
+            "id": "H7",
+            "question": "For each brand, show the number of products and the average price, but only for brands that have products in at least 3 different categories",
+            "expected_sql": "SELECT b.brand_name, COUNT(DISTINCT p.product_id) as product_count, AVG(p.list_price) as avg_price FROM brands b JOIN products p ON b.brand_id = p.brand_id GROUP BY b.brand_id, b.brand_name HAVING COUNT(DISTINCT p.category_id) >= 3 ORDER BY product_count DESC",
+            "notes": "Multiple aggregations with HAVING on COUNT DISTINCT"
+        },
+        {
+            "id": "H8",
+            "question": "List customers who placed orders in 2016 but not in 2017",
+            "expected_sql": "SELECT c.first_name, c.last_name, c.email FROM customers c WHERE c.customer_id IN (SELECT DISTINCT customer_id FROM orders WHERE YEAR(order_date) = 2016) AND c.customer_id NOT IN (SELECT DISTINCT customer_id FROM orders WHERE YEAR(order_date) = 2017)",
+            "notes": "Multiple subqueries with set operations"
+        },
+        {
+            "id": "H9",
+            "question": "What is the month-over-month revenue growth for 2017?",
+            "expected_sql": "SELECT MONTH(o.order_date) as month, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) as monthly_revenue FROM orders o JOIN order_items oi ON o.order_id = oi.order_id WHERE YEAR(o.order_date) = 2017 GROUP BY MONTH(o.order_date) ORDER BY month",
+            "notes": "Date aggregation by month with calculated revenue"
+        },
+        {
+            "id": "H10",
+            "question": "Find products that are stocked in all stores",
+            "expected_sql": "SELECT p.product_name, p.product_id FROM products p WHERE (SELECT COUNT(DISTINCT st.store_id) FROM stocks st WHERE st.product_id = p.product_id) = (SELECT COUNT(*) FROM stores)",
+            "notes": "Correlated subquery — universal quantification"
+        },
+    ],
+}
 
 EXTENDED_QUERIES = {
 
@@ -188,3 +325,10 @@ EXTENDED_QUERIES = {
         },
     ],
 }
+
+
+# Merged view — combine BASIC_QUERIES and EXTENDED_QUERIES under shared keys.
+ALL_QUERIES: dict = {}
+for _bank in (BASIC_QUERIES, EXTENDED_QUERIES):
+    for _key, _queries in _bank.items():
+        ALL_QUERIES.setdefault(_key, []).extend(_queries)

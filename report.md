@@ -3,19 +3,21 @@
 **Author:** Ansh Kakkar (Student#: 101298368) 
 **Due Date:** March 13, 2026  
 
+
 ## Table of Contents
 
-1. [Architecture Overview](#1-architecture-overview-inside-langgraph-workflow)
+1. [Architecture Overview (LangGraph Workflow)](#1-architecture-overview-langgraph-workflow)
 2. [Why My Solution Stands Out](#2-why-my-solution-stands-out)
-3. [How to Toggle Features](#3-enabling-features)
-4. [Agent Designs + Techniques](#4-agent-design--techniques)
-5. [Code Organization](#5-code-organization)
-6. [Challenges Faced](#6-challenges-faced)
-7. [About Me](#7-about-me)
+3. [Handling Ambiguous & Irrelevant Queries](#3-handling-ambiguous--irrelevant-queries)
+4. [Agent Design + Techniques](#4-agent-design--techniques)
+5. [Enabling Features](#5-enabling-features)
+6. [Code Organization](#6-code-organization)
+7. [Challenges Faced](#7-challenges-faced)
+8. [About Me](#8-about-me)
 
 ---
 
-# 1. Architecture Overview (Inside LangGraph Workflow)
+# 1. Architecture Overview (LangGraph Workflow)
 
 My submission uses an SQL Generation Agent powered by a **ReAct (Reasoning + Acting) tool-use loop**, followed by K-Candidate generation with a ValidatorAgent for execution and semantic review. Before committing to final SQL, the model can call lightweight database tools to look up real values and verify schema details — meaning the generated query is grounded in actual data, not just the LLM's memory.
 
@@ -64,20 +66,28 @@ Every query passes through `generateSqlNode` first for intent classification (Cl
 
 # 2. Why My Solution Stands Out
 
-### Clean Code Organization
-The project is structured into clearly separated folders — `agents/`, `graph/`, `schemas/`, `utils/`, `db/`, and `testing/` making the codebase easy to extend.
+- **Clean Code Organization** — clearly separated folders for agents, graph, schemas, utils, and testing. (See [Code Organization](#6-code-organization))
 
-### Modern Agentic Framework with LangGraph
-Instead of a tangled chain of `if` statements, the entire workflow is modelled as a **LangGraph state machine** with typed shared state (`graph/State.py`) and conditional edges. This makes the workflow and adding new features simpler. 
+- **Modern LangGraph Workflow** — entire pipeline modelled as a typed state machine with conditional edges, not a chain of if-statements.
 
-### Innovative Features
-- **ReAct Tool-Use Agent** — the SQLAgent doesn't just guess at column values and table names. It runs a ReAct (Reasoning + Acting) loop where the LLM can call real database tools — like looking up distinct brand names or searching for where a value lives — before writing the SQL. This means the generated query uses exact casing, correct column names, and verified filter values instead of relying on the model's memory.
-- **K-Candidate Generation with Temperature Diversity** — every query goes through `kCandidatesNode`, which generates candidates at a spread of temperatures (`[0.7, 0.3, 1.0, 0.5, 0.9, 1.2]`) and exits as soon as one passes execution and semantic review. Easy and medium queries cost exactly one generation (the default 0.7 pass almost always succeeds), while hard queries automatically benefit from diversity and retry without any manual configuration.
-- **Multi-Conversational Support** — ambiguous or unclear questions are handled gracefully through a conversational clarification loop rather than silently returning a wrong query.
+- **SQLAgent Techniques** — ReAct Tool-Use Loop, Chain-of-Thought Prompting, Dynamic Few-Shot Learning, Schema Grounding. (See [SQLAgent](#1-sqlagent-generator))
 
-### Ambiguous Query Handling
+- **ValidatorAgent** — two-phase execution + semantic review with self-correction loops. (See [ValidatorAgent](#2-validatoragent-verifier--fixer))
 
-When `multiConversational` is enabled, the pipeline detects vague terms (e.g. *best*, *popular*, *worst*) and pauses to ask the user a targeted clarification question. The user's answer is fed back to an LLM which **rewrites the original question** into a clean, unambiguous form before re-running SQL generation — so the model never receives a confusing appended string like `"best products (highest revenue)"`.
+- **K-Candidate Generation with Temperature Diversity** — Generates candidates at varied temperatures and exits as soon as the first one passes execution and semantic review. Easy and medium queries almost always succeed on the first attempt (temperature 0.7) and cost exactly one generation. Hard queries benefit from temperature diversity and retry resilience when the first attempt fails.
+
+- **Graceful Query Handling** — Handle all sorts of user queries, ambiguous and irrelevant queries are detected and handled without crashing the pipeline. (See [Handling Ambiguous & Irrelevant Queries](#3-handling-ambiguous--irrelevant-queries))
+
+- **Multi-Conversational Mode** — (OPTIONAL) Can be turned on and off to prevent interference with automated testing. Allows interactive clarification for ambiguous queries by pausing to ask the user for details, then reframing their answer into a clean unambiguous question. (See [Enabling Features](#5-enabling-features) for how to enable) 
+
+---
+
+
+# 3. Handling Ambiguous & Irrelevant Queries
+
+## Ambiguous Query Handling
+
+If `multiConversational` is enabled (see [Enabling Features](#5-enabling-features)), the pipeline detects vague terms and pauses to ask the user a clarification question. The user's answer is fed back to an LLM which **rewrites the original question** into a clean, unambiguous form before re-running SQL generation. See the example below:
 
 ```
 Enter your question: Show me the best products
@@ -90,7 +100,6 @@ Your answer: highest revenue
 🔄 Reframed question: Show me the products with the highest revenue
                       in the bike store database.
 
-Generating...
 Generated SQL:
    SELECT p.product_name,
           SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue
@@ -102,13 +111,17 @@ Generated SQL:
 
 When `multiConversational` is disabled (e.g. automated evaluation), the pipeline exits cleanly with a hint instead of blocking on `input()`:
 ```
+Enter your question: Show me the best products
+
 ❓ Query was ambiguous — try being more specific.
    Hint: What do you mean by 'best' — highest revenue, most orders, or something else?
+
+Enter your question: 
 ```
 
-### Irrelevant Query Detection
+## Irrelevant Query Detection
 
-Queries that have no connection to a bike store database are identified and skipped before any SQL is generated or validated. This prevents wasted LLM calls and avoids returning confusing empty results.
+Queries that have no connection to a bike store database are identified and skipped before any SQL is generated or validated. Since queries will be executed, we return `SELECT NULL WHERE 1=0` preventing crashes in testing from returning blank results and print out a proper statement. See example:
 
 ```
 Enter your question: Why am I feeling sick in the store?
@@ -116,30 +129,12 @@ Enter your question: Why am I feeling sick in the store?
 🎯 Intent: Irrelevant
 ❌ Query has no relevance to the bike store database.
 
-Generated SQL:
+Generated SQL: SELECT NULL WHERE 1=0
 -- IRRELEVANT_QUERY: This question cannot be answered
                      from the bike store database.
 ```
 
-### Proven Prompting Techniques
-Chain-of-Thought (CoT) reasoning, embedding-based Dynamic Few-Shot retrieval, schema grounding with live sample rows, ReAct tool-use for real data verification, and Self-Correction loops are all layered together to push SQL accuracy as high as possible.
-
 ---
-
-# 3. Enabling Features
-
-## Multi-Conversational Mode
-By default, ambiguous queries return a hint comment (`-- AMBIGUOUS_QUERY: ...`) so the pipeline never blocks on `input()` during automated evaluation. To enable the interactive clarification loop, set the flag in `agent.py`:
-
-```python
-# agent.py — QueryWriter.__init__
-self.multi_conversational_enabled = True   # ask user to clarify ambiguous queries
-```
-
-When enabled, the pipeline will pause on ambiguous queries, ask a targeted question, reframe the answer into a clean unambiguous question using an LLM call, and re-run generation.
-
-**Must be `False` during automated evaluation** to avoid hanging on `input()`.
-
 
 
 
@@ -153,47 +148,6 @@ This system is built as a **multi-agent architecture** where each agent has a cl
 **Role:** Converts natural language questions into SQL queries.
 
 ### Techniques Used:
-
-#### **ReAct Tool-Use Loop (Reasoning + Acting)**
-Instead of hoping the LLM remembers every column name and value correctly, the SQLAgent wraps its generation in a **ReAct loop** where the model can reason about the question, decide it needs to verify something, call a tool, get real data back and enrich its information before generating the SQL.
-
-The loop runs up to 2 tool rounds before requiring a final answer. If the LLM decides it doesn't need any tools, it skips straight to SQL generation, so we can reduce overhead for simple queries.
-
-**Three read only database tools are available:**
-
-| Tool | What it does | When the model uses it |
-|---|---|---|
-| `get_distinct_values(table, column)` | Returns up to 20 distinct values from a column | Verifying exact string casing for WHERE filters (e.g. is it `'Trek'` or `'trek'`?) |
-| `search_value(term)` | Fuzzy-searches all VARCHAR columns across all tables | Finding which table/column contains a value the user mentioned |
-| `get_columns(table)` | Returns all column names and types for a table | Confirming exact column names before SELECT or WHERE |
-
-```
-Example USAGE: User asks "Show me orders with Electra bikes"
-
-ReAct Round 0:
-  LLM thinks: "User mentioned 'Electra' — I should verify where this value lives."
-  Tool call:  {"action": "tool_call", "tool": "search_value", "term": "Electra"}
-  Result:     brands.brand_name: ['Electra']
-              products.product_name: ['Electra Townie Original 21D - 2016', ...]
-
-ReAct Round 1:
-  LLM thinks: "Electra is a brand. I need to join brands → products → order_items → orders."
-  Final answer: SELECT o.order_id, o.order_date, ...
-                FROM brands b
-                JOIN products p ON b.brand_id = p.brand_id
-                JOIN order_items oi ON p.product_id = oi.product_id
-                JOIN orders o ON oi.order_id = o.order_id
-                WHERE b.brand_name = 'Electra'
-```
-
-If all tool rounds complete without the model calling a tool, the agent proceeds directly to the final structured call with a strict Pydantic schema constraint (`format=SQLResult.model_json_schema()`) — so it never crashes.
-
-```
-src/agents/tools/tools.py        # Tool implementations (get_distinct_values, search_value, get_columns)
-src/agents/tools/toolHelpers.py  # getTools() schema definitions + executeTool() dispatcher
-src/agents/SQLAgent.py           # ReAct loop in generate()
-src/utils/prompts.py             # System + user prompt builders
-```
 
 #### **Chain-of-Thought (CoT) Prompting**  
   Encourages step-by-step reasoning (tables → joins → filters → aggregations) before producing SQL. Follows clear steps in the system prompt. 
@@ -243,6 +197,49 @@ agents/SQLAgent.py
 
 ```
 
+
+#### **ReAct Tool-Use Loop (Reasoning + Acting)**
+Instead of hoping the LLM remembers every column name and value correctly, the SQLAgent wraps its generation in a **ReAct loop** where the model can reason about the question, decide it needs to verify something, call a tool, get real data back and enrich its information before generating the SQL.
+
+The loop runs up to 2 tool rounds before requiring a final answer. If the LLM decides it doesn't need any tools, it skips straight to SQL generation, so we can reduce overhead for simple queries.
+
+**Three read only database tools are available:**
+
+| Tool | What it does | When the model uses it |
+|---|---|---|
+| `get_distinct_values(table, column)` | Returns up to 20 distinct values from a column | Verifying exact string casing for WHERE filters (e.g. is it `'Trek'` or `'trek'`?) |
+| `search_value(term)` | Fuzzy-searches all VARCHAR columns across all tables | Finding which table/column contains a value the user mentioned |
+| `get_columns(table)` | Returns all column names and types for a table | Confirming exact column names before SELECT or WHERE |
+
+```
+Example USAGE: User asks "Show me orders with Electra bikes"
+
+ReAct Round 0:
+  LLM thinks: "User mentioned 'Electra' — I should verify where this value lives."
+  Tool call:  {"action": "tool_call", "tool": "search_value", "term": "Electra"}
+  Result:     brands.brand_name: ['Electra']
+              products.product_name: ['Electra Townie Original 21D - 2016', ...]
+
+ReAct Round 1:
+  LLM thinks: "Electra is a brand. I need to join brands → products → order_items → orders."
+  Final answer: SELECT o.order_id, o.order_date, ...
+                FROM brands b
+                JOIN products p ON b.brand_id = p.brand_id
+                JOIN order_items oi ON p.product_id = oi.product_id
+                JOIN orders o ON oi.order_id = o.order_id
+                WHERE b.brand_name = 'Electra'
+```
+
+If all tool rounds complete without the model calling a tool, the agent proceeds directly to the final structured call with a strict Pydantic schema constraint (`format=SQLResult.model_json_schema()`) — so it never crashes.
+
+```
+src/agents/tools/tools.py        # Tool implementations (get_distinct_values, search_value, get_columns)
+src/agents/tools/toolHelpers.py  # getTools() schema definitions + executeTool() dispatcher
+src/agents/SQLAgent.py           # ReAct loop in generate()
+src/utils/prompts.py             # System + user prompt builders
+```
+
+
 #### **Schema Grounding**  
   Provides context to the LLM, including the table names and actual sample column data, to reduce hallucinations.
 
@@ -270,7 +267,24 @@ Ensures that generated SQL is both executable and semantically correct before re
 
 ---
 
-## 5. Code Organization
+# 5. Enabling Features
+
+## Multi-Conversational Mode
+
+By default, ambiguous queries return a hint comment (`-- AMBIGUOUS_QUERY: ...`) so the pipeline never blocks on `input()` during automated evaluations. To enable the interactive clarification loop, set the flag in `agent.py`:
+
+```python
+# agent.py — QueryWriter.__init__
+self.multi_conversational_enabled = True   # ask user to clarify ambiguous queries
+```
+
+When enabled, the pipeline will pause on ambiguous queries, ask a targeted question, reframe the answer into a clean unambiguous question using an LLM call, and re-run generation.
+
+**Must be `False` during automated evaluation** to avoid hanging on `input()`.
+
+---
+
+## 6. Code Organization
 
 Organized to be readable and scalable. I use Pydantic schemas to reduce errors and provide the LLM with a consistent output format. The LangGraph workflow, agents, utils (with helpers and prompts) and tests I used are all organized in their own respective folders.
 
@@ -297,7 +311,8 @@ carleton_competition_winter_2026/
     │
     ├── utils/
     │   ├── helpers.py              # loadSchema, buildSchemaContext, executeSQL
-    │   └── prompts.py              # System + user prompt builders
+    │   |── prompts.py              # System + user prompt builders
+    |   └── constants.py            # Constants
     │
     └── testing/                    # Test suite and saved test results
 ```
@@ -305,7 +320,7 @@ carleton_competition_winter_2026/
 
 ---
 
-## 6. Challenges Faced
+## 7. Challenges Faced
 
 I went through lots of trial and error to solve this problem. Originally, I had 3 agents: a QuestionDecomposerAgent, a SchemaExpertAgent, and an SQLGeneration Agent. Although this type of architecture may seem advanced, it was inaccurate and error-prone. After some research, I realized that a multi-agent workflow of that format is not useful for this problem. A degree of error is carried over from each agent, and if the first agent misunderstood the question even slightly, the whole workflow is ruined. I also played around with a RAG (Retrieval Augmented Generation) setup to add more context, but for this dataset, the schema is small enough to fit directly in the prompt. RAG added extra complexity, latency and didn’t help enough to justify it.
 
@@ -313,7 +328,7 @@ After that, I pivoted to my more reliable setup one "MASTER" SQL agent that focu
 
 ---
 
-## 7. About Me
+## 8. About Me
 
 Hi! I’m Ansh Kakkar, a 3rd-year Computer Science student at Carleton University. I love building things, joining hackathons and learn by making personal projects in my free time.
 
