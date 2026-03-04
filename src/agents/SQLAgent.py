@@ -3,6 +3,13 @@ SQL Generator Agent
 
 Uses Chain-of-Thought reasoning and Dynamic Few-Shot Learning
 to generate accurate SQL queries from natural language.
+
+ReAct tool-use (max 2 rounds):
+    Uses Ollama's native tool-calling interface. The model receives the
+    same system + user prompt as always, plus a tools= list. If the model
+    decides to call a tool, the result is appended and the loop continues.
+    After the loop a final structured call with format=SQLResult schema
+    produces the validated result — identical to the original single call.
 """
 
 import os
@@ -12,8 +19,13 @@ from dataclasses import dataclass
 import ollama
 from sentence_transformers import SentenceTransformer
 from src.utils.helpers import loadSchema, buildSchemaContext
-from src.utils.prompts import buildSystemPrompt, buildUserPrompt, buildFewShotContext
+from src.utils.prompts import (
+    buildSystemPrompt,
+    buildUserPrompt,
+    buildFewShotContext,
+)
 from src.schemas.SQLAgentSchemas import SQLResult, QueryIntent
+from src.agents.tools.toolHelpers import getTools, executeTool
 
 
 # Format of the few-shot examples that will help the LLM
@@ -165,8 +177,16 @@ class SQLAgent:
 
     def generate(self, question: str, temperature: float = 0.7) -> SQLResult:
         """
-        Generate SQL query using Chain-of-Thought reasoning and Few-Shot Learning.
-        Also classifies query intent (Clear / Ambiguous / Irrelevant).
+        Generate SQL using CoT reasoning, Few-Shot examples, and native ReAct tool-use.
+
+        Flow:
+          1. Build the same system + user prompt as the original single-shot call.
+          2. Tool-use loop (max 2 rounds): call the LLM with tools=self.getTools().
+             If the model calls a tool → execute it, append result, loop again.
+             If no tool_calls in the response → exit the loop early.
+          3. One final structured call with format=SQLResult schema (no tools) —
+             identical to the original single call, but the conversation now
+             contains any tool observations the model gathered.
 
         Returns:
             SQLResult with .sql, .intent, and .clarification_question fields.
@@ -174,39 +194,62 @@ class SQLAgent:
         print(f"\nGenerating Query for: {question}")
 
         # Step 1: Retrieve similar examples
-        print("📚 Retrieving similar examples...")
         similarExamples = self.findSimilarQueryExamples(question, topK=3)
 
         # Step 2: Build contexts
-        print("🏗️  Building prompt contexts...")
-        schemaContext = self.schemaContext  # use cached schema context
+        schemaContext = self.schemaContext
         fewShotContext = buildFewShotContext(similarExamples)
 
-        # Step 3: Build system and user prompts
+        #Prompts needed for generation
         systemPrompt = buildSystemPrompt()
-        userPrompt = buildUserPrompt(question, schemaContext, fewShotContext)
+        userPrompt   = buildUserPrompt(question, schemaContext, fewShotContext)
 
-        # Step 4: Generate SQL + classify intent
-        print(f"🤖 Generating SQL with {self.model}...")
-        try:
+        messages = [
+            {'role': 'system', 'content': systemPrompt},
+            {'role': 'user',   'content': userPrompt},
+        ]
+
+        # ReAct structure tool-use loop which will provides any information needed with tool calls (loops twice)
+        for round_idx in range(2):
+            print(f"🤖 ReAct round {round_idx} — calling {self.model}...")
             response = self.ollamaClient.chat(
                 model=self.model,
-                messages=[
-                    {'role': 'system', 'content': systemPrompt},
-                    {'role': 'user',   'content': userPrompt},
-                ],
-                format=SQLResult.model_json_schema(),
-                options={'temperature': temperature}
+                messages=messages,
+                tools=getTools(),
+                options={'temperature': temperature},
             )
 
-            result = SQLResult.model_validate_json(response['message']['content'])
-            print(f"💭 Reasoning: {result.reasoning}")
-            print(f"🎯 Intent: {result.intent.value}")
-            result.sql = result.sql.rstrip(';')
-            print(f"✅ Generated SQL: {result.sql}")
-            return result
+            tool_calls = response['message'].get('tool_calls') or []
+            if not tool_calls:
+                # Model chose not to call any tool — exit loop
+                break
 
-        except Exception as e:
-            print(f"❌ Error generating SQL: {e}")
-            raise
+            # Append the assistant's tool-call message
+            messages.append(response['message'])
+
+            # Execute each tool and feed results back
+            for tc in tool_calls:
+                func_name = tc['function']['name']
+                result_lines = executeTool(tc, db_path=self.dbPath, schema_info=self.schemaInfo)
+                print(f"🔧 Tool '{func_name}' returned {len(result_lines)} item(s)")
+                messages.append({
+                    'role': 'tool',
+                    'content': '\n'.join(result_lines),
+                })
+
+        # Final structured call to get the SQLResult (Enriched with tool observations if any)
+        final_response = self.ollamaClient.chat(
+            model=self.model,
+            messages=messages,
+            format=SQLResult.model_json_schema(),
+            options={'temperature': temperature},
+        )
+
+        result = SQLResult.model_validate_json(final_response['message']['content'])
+        result.sql = result.sql.rstrip(';')
+        print(f"💭 Reasoning: {result.reasoning}")
+        print(f"✅ Generated SQL: {result.sql}")
+        return result
+
+
 

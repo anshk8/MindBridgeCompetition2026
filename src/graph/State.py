@@ -9,18 +9,15 @@ class SQLGenerationState(TypedDict):
     Set at entry (required):
         question              — the natural language question
         schemaContext         — pre-built schema string (computed once in QueryWriter)
-        kEnabled              — whether K-candidate mode is active
-        kCount                — how many candidates to generate when enabled
         multiConversational   — whether to route on intent (clarify / reject irrelevant)
 
-    Set by rank_node:
-        difficulty      — "Easy" | "Medium" | "Hard" | "Ambiguous"
-        tablesNeeded    — list of table names the ranker identified
-
-    Set by generate_node / k_candidates_node:
-        sql                   — the generated (or best selected) SQL string
+    Set by generateSqlNode:
+        sql                   — the generated SQL string
         queryIntent           — "Clear" | "Ambiguous" | "Irrelevant"
         clarificationQuestion — follow-up question if intent is Ambiguous
+
+    Set by kCandidatesNode:
+        sql                   — best selected SQL string
         validation            — full validation result dict from ValidatorAgent
 
     Set at the final step of each path:
@@ -30,13 +27,7 @@ class SQLGenerationState(TypedDict):
     # ── Entry fields (required) ────────────────────────────────────── #
     question: str
     schemaContext: str
-    kEnabled: bool
-    kCount: int
     multiConversational: bool
-
-    # ── After rank_node ────────────────────────────────────────────── #
-    difficulty: NotRequired[Literal['Easy', 'Medium', 'Hard', 'Ambiguous'] | None]
-    tablesNeeded: NotRequired[list[str]]
 
     # ── After generation / validation ─────────────────────────────── #
     sql: NotRequired[str]

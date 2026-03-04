@@ -7,17 +7,16 @@ Agents are bound via functools.partial in GraphWorkflow.py at compile time.
 
 Nodes
 ─────
-    rankNode          — classifies question difficulty via DifficultyRankerAgent
     generateSqlNode   — generates SQL + classifies intent (Clear/Ambiguous/Irrelevant)
     clarificationNode — prompts user for clarification and loops back to generateSqlNode
     irrelevantNode    — exits early for queries with no relevance to the database
-    validateNode      — validates/corrects SQL via ValidatorAgent   (fast path)
-    kCandidatesNode   — generates K candidates, scores, picks best  (hard path)
+    ambiguousNode     — exits early for ambiguous queries when multiConversational=False
+    kCandidatesNode   — generates up to K candidates at varied temperatures, picks best
 
 Helpers
 ───────
     scoreCandidate  — heuristic scorer for a ValidatorAgent result dict
-    K_TEMPERATURES  — temperature schedule used across K candidates
+    K_TEMPERATURES  — temperature schedule used across K candidates (first = default)
 """
 
 # ────────────────────────────────────────────────────────────────── #
@@ -26,7 +25,7 @@ Helpers
 # is always included regardless of K.                                #
 # ────────────────────────────────────────────────────────────────── #
 
-K_TEMPERATURES = [0.3, 0.7, 1.0, 0.5, 0.9, 1.2]
+K_TEMPERATURES = [0.7, 0.3, 1.0, 0.5, 0.9, 1.2]
 
 import os
 import ollama
@@ -70,15 +69,6 @@ def scoreCandidate(validation: ValidationResult, question: str = '') -> int:
 # Agents are injected via functools.partial in GraphWorkflow.py.     #
 # ────────────────────────────────────────────────────────────────── #
 
-def rankNode(state: SQLGenerationState, ranker) -> dict:
-    """Classify question difficulty and record which tables are needed."""
-    result = ranker.rank(state['question'])
-    return {
-        'difficulty':   result.difficulty.value,
-        'tablesNeeded': result.tables_needed,
-    }
-
-
 def generateSqlNode(state: SQLGenerationState, sqlAgent) -> dict:
     """Fast path: generate SQL and classify intent at default temperature."""
     try:
@@ -89,7 +79,6 @@ def generateSqlNode(state: SQLGenerationState, sqlAgent) -> dict:
             'clarificationQuestion': result.clarification_question,
         }
     except Exception as e:
-        print(f"⚠️  SQL generation failed ({e}), returning minimal fallback")
         return {
             'sql':                   f'-- UNANSWERABLE_QUERY: SQL generation failed — {e}',
             'queryIntent':           QueryIntent.CLEAR.value,
@@ -189,78 +178,53 @@ def ambiguousNode(state: SQLGenerationState) -> dict:
     }
 
 
-def validateNode(state: SQLGenerationState, validator) -> dict:
-    """
-    Fast path: validate execution + semantics, apply corrections if needed.
-    Returns UNANSWERABLE_QUERY sentinel when SQL cannot be made to execute.
-    """
-    sql = state.get('sql', '')
-    # If upstream already flagged as unanswerable, pass through
-    if sql.startswith('-- UNANSWERABLE_QUERY:'):
-        fallback = {
-            'approved': False, 'sql': sql, 'exec_fixes': 0,
-            'semantic_fixes': 0, 'execution_ok': False,
-            'row_count': 0, 'sample_result': None,
-            'issues': ['Upstream marked unanswerable'],
-        }
-        return {'validation': fallback, 'finalSql': sql}
-
-    validation = validator.validateSQL(
-        question=state['question'],
-        sql=sql,
-        schemaContext=state['schemaContext'],
-    )
-    finalSql = validation['sql']
-    # Sentinel from schema-mismatch detection — pass through as-is
-    if finalSql.startswith('-- UNANSWERABLE_QUERY:'):
-        return {'validation': validation, 'finalSql': finalSql}
-    if not validation['approved'] and not validation['execution_ok']:
-        issues_summary = '; '.join(validation.get('issues', [])[:3]) or 'All correction attempts failed'
-        finalSql = f'-- UNANSWERABLE_QUERY: {issues_summary}'
-    return {
-        'validation': validation,
-        'finalSql':   finalSql,
-    }
-
-
 def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
     """
-    Heavy path: generate K SQL candidates at varied temperatures, validate
-    each, score them, and return the best.
-    Exits early if a perfect candidate (executes + approved) is found.
+    Validate up to K SQL candidates and return the best one.
+
+    The plan is a flat list of (temperature, sql_or_None) pairs:
+      - Slot 0 reuses the SQL already produced by generateSqlNode (no extra LLM call).
+      - Slots 1..K-1 generate fresh candidates at varied temperatures.
+
+    The loop breaks as soon as a candidate both executes and is semantically
+    approved — easy queries almost always exit after the first slot.
     """
-    k = state['kCount']
+    initial_sql = state.get('sql', '').strip()
+
+    # First slot reuses existing SQL; remaining slots generate at varied temps.
+    # Each entry: (temperature, prebuilt_sql | None)
+    generation_plan = [(K_TEMPERATURES[0], initial_sql)] + [(t, None) for t in K_TEMPERATURES[1:]]
+
     candidates = []
-
-    for i in range(k):
-        temp = K_TEMPERATURES[i % len(K_TEMPERATURES)]
-
-        try:
-            result = sqlAgent.generate(state['question'], temperature=temp)
-        except Exception:
-            continue
-
-        # Skip non-Clear or blank candidates — validating them wastes LLM calls
-        # and could trigger spurious fix loops on Irrelevant/Ambiguous SQL.
-        if result.intent.value != QueryIntent.CLEAR.value or not result.sql.strip():
-            continue
-
-        sql = result.sql
+    for temp, prebuilt_sql in generation_plan:
+        if prebuilt_sql is not None:
+            # Sentinel from a failed generateSqlNode — skip rather than waste
+            # MAX_EXEC_FIXES LLM calls trying to "fix" a SQL comment.
+            if prebuilt_sql.startswith('--'):
+                continue
+            sql = prebuilt_sql
+            print("♻️  Reusing generate result as first candidate...")
+        else:
+            try:
+                result = sqlAgent.generate(state['question'], temperature=temp)
+            except Exception:
+                continue
+            # Skip non-Clear or blank results — validating them wastes LLM calls
+            if result.intent.value != QueryIntent.CLEAR.value or not result.sql.strip():
+                continue
+            sql = result.sql
 
         validation = validator.validateSQL(
             question=state['question'],
             sql=sql,
             schemaContext=state['schemaContext'],
         )
-
-        s = scoreCandidate(validation)
         candidates.append({
             'sql':        validation['sql'],
             'validation': validation,
-            'score':      s,
+            'score':      scoreCandidate(validation),
         })
 
-        # Early exit: perfect score — no need to generate more
         if validation['execution_ok'] and validation['approved']:
             break
 
@@ -277,10 +241,11 @@ def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
 
     best = max(candidates, key=lambda c: c['score'])
 
-    finalSql = best['sql']
-    if not best['validation']['approved'] and not best['validation']['execution_ok']:
+    if not best['validation']['execution_ok']:
         issues_summary = '; '.join(best['validation'].get('issues', [])[:3]) or 'No viable candidate'
         finalSql = f'-- UNANSWERABLE_QUERY: {issues_summary}'
+    else:
+        finalSql = best['sql']
 
     return {
         'sql':        best['sql'],
