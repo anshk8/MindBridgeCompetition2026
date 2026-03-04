@@ -5,8 +5,7 @@ SQL Generator Agent
 
 import os
 import numpy as np
-from typing import List, Optional
-from dataclasses import dataclass
+from typing import List
 import ollama
 from sentence_transformers import SentenceTransformer
 from src.utils.helpers import loadSchema, buildSchemaContext
@@ -17,15 +16,7 @@ from src.utils.prompts import (
 )
 from src.schemas.SQLAgentSchemas import SQLResult, QueryIntent
 from src.agents.tools.toolHelpers import getTools, executeTool
-
-
-# Format of the few-shot examples that will help the LLM
-@dataclass
-class FewShotExample:
-    question: str
-    sql: str
-    explanation: str = ""
-    embedding: Optional[np.ndarray] = None
+from src.utils.fewShotExamples import FewShotExample, FEW_SHOT_EXAMPLES
 
 
 class SQLAgent:
@@ -48,98 +39,7 @@ class SQLAgent:
 
     #setup examples for embeddings
     def setupFewShotExamples(self) -> List[FewShotExample]:
-        examples = [
-            FewShotExample(
-                question="How many customers are there?",
-                sql="SELECT COUNT(*) FROM customers",
-                explanation="Simple COUNT aggregation on single table"
-            ),
-            FewShotExample(
-                question="Show me all brands",
-                sql="SELECT brand_id, brand_name FROM brands",
-                explanation="Simple SELECT all columns from single table"
-            ),
-            FewShotExample(
-                question="List all product categories",
-                sql="SELECT category_id, category_name FROM categories",
-                explanation="Simple SELECT from single table"
-            ),
-            FewShotExample(
-                question="What are the top 5 most expensive products?",
-                sql="SELECT product_name, list_price FROM products ORDER BY list_price DESC LIMIT 5",
-                explanation="SELECT with ORDER BY and LIMIT"
-            ),
-            FewShotExample(
-                question="Find customers in New York",
-                sql="SELECT first_name, last_name, city, state FROM customers WHERE state = 'NY'",
-                explanation="SELECT with WHERE clause for filtering"
-            ),
-            FewShotExample(
-                question="Show me customer names with their order details",
-                sql="SELECT c.first_name, c.last_name, o.order_id, o.order_date FROM customers c INNER JOIN orders o ON c.customer_id = o.customer_id",
-                explanation="Two-table JOIN with column selection"
-            ),
-            FewShotExample(
-                question="What is the average product price?",
-                sql="SELECT AVG(list_price) FROM products",
-                explanation="Simple aggregation function (AVG)"
-            ),
-            FewShotExample(
-                question="How many products are in each category?",
-                sql="SELECT c.category_name, COUNT(p.product_id) FROM categories c LEFT JOIN products p ON c.category_id = p.category_id GROUP BY c.category_name",
-                explanation="JOIN with GROUP BY aggregation"
-            ),
-            FewShotExample(
-                question="Which stores have the most inventory?",
-                sql="SELECT s.store_name, SUM(st.quantity) as total_inventory FROM stores s JOIN stocks st ON s.store_id = st.store_id GROUP BY s.store_id, s.store_name ORDER BY total_inventory DESC",
-                explanation="Multi-table JOIN with GROUP BY and ORDER BY"
-            ),
-            FewShotExample(
-                question="Find customers who have never placed an order",
-                sql="SELECT first_name, last_name, email FROM customers WHERE customer_id NOT IN (SELECT DISTINCT customer_id FROM orders)",
-                explanation="Subquery with NOT IN for exclusion"
-            ),
-            FewShotExample(
-                question="List all products and their available stock quantities by store",
-                sql="SELECT p.product_name, s.store_name, st.quantity FROM products p JOIN stocks st ON p.product_id = st.product_id JOIN stores s ON st.store_id = s.store_id",
-                explanation="Three-table JOIN"
-            ),
-            FewShotExample(
-                question="What is the total revenue by brand?",
-                sql="SELECT b.brand_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) as total_revenue FROM brands b JOIN products p ON b.brand_id = p.brand_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY b.brand_name ORDER BY total_revenue DESC",
-                explanation="Complex multi-table JOIN with calculated aggregation"),
-            FewShotExample(
-                question="What is the total value of order 1?",
-                sql="SELECT o.order_id, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) as order_total FROM orders o JOIN order_items oi ON o.order_id = oi.order_id WHERE o.order_id = 1 GROUP BY o.order_id",
-                explanation="Order totals must be calculated from order_items: quantity * list_price * (1 - discount)"
-            ),
-            FewShotExample(
-                question="Show customers with their total spending",
-                sql="SELECT c.first_name, c.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) as total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name",
-                explanation="Customer spending requires joining through orders to order_items and calculating totals"
-            ),
-            FewShotExample(
-                question="What is the average order value?",
-                sql="SELECT AVG(order_total) FROM (SELECT o.order_id, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) as order_total FROM orders o JOIN order_items oi ON o.order_id = oi.order_id GROUP BY o.order_id)",
-                explanation="Average order value requires subquery to first calculate each order's total"
-            ),
-
-            FewShotExample(
-                question="Show orders from March 2017",
-                sql="SELECT order_id, customer_id, order_date FROM orders WHERE order_date >= '2017-03-01' AND order_date < '2017-04-01'",
-                explanation="Date filtering using comparison operators or BETWEEN"
-            ),
-            FewShotExample(
-                question="Which store has the highest total revenue?",
-                sql="SELECT s.store_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM stores s JOIN orders o ON s.store_id = o.store_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY s.store_id, s.store_name ORDER BY total_revenue DESC LIMIT 1",
-                explanation="Store revenue must go through orders not stocks. stocks is inventory only. Correct path: stores -> orders -> order_items"
-            ),
-            FewShotExample(
-                question="Show total revenue per store",
-                sql="SELECT s.store_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM stores s JOIN orders o ON s.store_id = o.store_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY s.store_id, s.store_name ORDER BY total_revenue DESC",
-                explanation="Store revenue must go through orders not stocks. stocks is inventory only. Correct path: stores -> orders -> order_items"
-            ),
-        ]
+        examples = list(FEW_SHOT_EXAMPLES)
 
         # Compute embeddings for all examples (will be used to match similar examples for queries)
         questions = [ex.question for ex in examples]
