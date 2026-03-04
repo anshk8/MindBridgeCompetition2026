@@ -6,7 +6,7 @@
 
 ## Table of Contents
 
-1. [Architecture Overview (LangGraph Workflow)](#1-architecture-overview-langgraph-workflow)
+1. [HIGH Level Architecture Overview](#1-high-level-architecture-overview)
 2. [Why My Solution Stands Out](#2-why-my-solution-stands-out)
 3. [Handling Ambiguous & Irrelevant Queries](#3-handling-ambiguous--irrelevant-queries)
 4. [Agent Design + Techniques](#4-agent-design--techniques)
@@ -17,49 +17,75 @@
 
 ---
 
-# 1. Architecture Overview (LangGraph Workflow)
+# 1. HIGH Level Architecture Overview
 
-My submission uses an SQL Generation Agent powered by a **ReAct (Reasoning + Acting) tool-use loop**, followed by K-Candidate generation with a ValidatorAgent for execution and semantic review. Before committing to final SQL, the model can call lightweight database tools to look up real values and verify schema details — meaning the generated query is grounded in actual data, not just the LLM's memory.
+My submission uses a **two-stage agentic pipeline** orchestrated by LangGraph:
 
-Every query passes through `generateSqlNode` first for intent classification (Clear / Ambiguous / Irrelevant). Clear queries are then routed to `kCandidatesNode`, which generates candidates at varied temperatures and exits as soon as the first one passes execution and semantic review. Easy and medium queries almost always succeed on the first attempt (temperature 0.7) and cost exactly one generation. Hard queries benefit from temperature diversity and retry resilience when the first attempt fails.
+- **SQLAgent (generateSqlNode)** — Uses ReAct loops and tool-use to reason about table relationships, verify column names/values, classify intent (Clear / Ambiguous / Irrelevant) and generate SQL. 
+
+- **K-Candidate Generation & Validation (kCandidatesNode)** — Generates multiple SQL candidates at varied temperatures (0.7, 0.3, 1.0, 0.5, ...) and returns the first one passing execution and semantic validation.
+
+- **ValidatorAgent** — Ensures the final SQL is executable and semantically correct by executing, repairing failures (≤2 rounds), and validating results match user intent.
+
+## Full Workflow
 
 ```
-                         ┌─────────────────────┐
-                         │     User Question   │
-                         └──────────┬──────────┘
-                                    │
-                                    v
-                    ┌──────────────────────────────────────┐
-                    │   SQLAgent  (ReAct Tool-Use Loop)    │ ◄── (clarify loop-back)
-                    │   generateSqlNode                    │
-                    │                                      │
-                    │   ┌──────────────────────────────┐   │
-                    │   │ LLM decides: need a tool?    │   │
-                    │   │  YES → call tool, get result │   │
-                    │   │         loop back (max 2x)   │   │
-                    │   │  NO  → produce final answer  │   │
-                    │   └──────────────────────────────┘   │
-                    │                                      │
-                    │   Tools:                             │
-                    │    • get_distinct_values(table, col) │
-                    │    • search_value(term)              │
-                    │    • get_columns(table)              │
-                    │                                      │
-                    │   Intent: Clear / Ambiguous /        │
-                    │           Irrelevant                 │
-                    └──────────────────┬───────────────────┘
-                                       │
-              ┌──────────┬─────────────┼──────────────────────────┐
-              │          │             │                           │
-           Irrel.    Ambig.        Ambig.                       Clear
-                     (mc=T)        (mc=F)
-              │          │             │                           │
-            exit        ask          exit hint              kCandidatesNode
-                    clarify                            temps: [0.7, 0.3, 1.0, 0.5, ...]
-                      Node                             validate each, exit early on pass
-              │       │ (loop back)                               │
-              v       v                                           v
-             END    SQLAgent                                  Final SQL
+                              ┌─────────────────────┐
+                              │   User Question     │
+                              └──────────┬──────────┘
+                                         │
+                                         v
+                    ┌────────────────────────────────────────────┐
+                    │     generateSqlNode: SQLAgent              │
+                    │     (ReAct Tool-Use Loop)                  │
+                    │                                            │
+                    │  ┌──────────────────────────────────────┐  │
+                    │  │ Tool-use loop (max 2 rounds):        │  │
+                    │  │  • search_value(term)                │  │
+                    │  │  • get_distinct_values(col)          │  │
+                    │  │  • get_columns(table)                │  │
+                    │  └──────────────────────────────────────┘  │
+                    │                                            │
+                    │  Output: SQL + Intent Classification       │
+                    │  Intents: Clear / Ambiguous / Irrelevant   │
+                    └──────────────┬─────────────────────────────┘
+                                   │
+            ┌──────────────┬───────┼─────────────┬──────────────┐
+            │              │       │             │              │
+        Irrelevant     Ambiguous  Ambiguous    Clear         (fallback)
+        (invalid)    (mc=False)   (mc=True)   Intent
+            │              │       │             │
+            v              v       v             v
+         Return        Return  Ask User    kCandidatesNode
+          NULL      Hint Comment  for      (Multi-temp loop)
+         Query                 Input    ┌─────────────────┐
+                                        │ Temp 0.7 → Val? │
+                                  ┌─────┤  Exit on pass   │
+                                  │     │ Temp 0.3 → Val? │
+                                  │     │ Temp 1.0 → Val? │
+                                  │     │ ...retry...     │
+                                  │     └─────────────────┘
+                                  │              │
+                                  │              v
+                                  │     ┌──────────────────────┐
+                                  │     │  ValidatorAgent      │
+                                  │     │  ┌────────────────┐  │
+                                  │     │  │ Execute SQL    │  │
+                                  │     │  │ Repair (≤2x)   │  │
+                                  │     │  │ Semantic check │  │
+                                  │     │  │ Fix output     │  │
+                                  │     │  └────────────────┘  │
+                                  │     └──────────┬───────────┘
+                                  │                │
+                                  │            Pass?
+                                  │                │
+                                  │          ┌─────┴─────┐
+                                  │          │           │
+                                  │         Yes         No
+                                  │          │           │
+                                  │          v           v
+                                  └──────►Return    Retry or
+                                          Final SQL  Fail
 ```
 
 ---
@@ -68,11 +94,11 @@ Every query passes through `generateSqlNode` first for intent classification (Cl
 
 - **Clean Code Organization** — clearly separated folders for agents, graph, schemas, utils, and testing. (See [Code Organization](#6-code-organization))
 
-- **Modern LangGraph Workflow** — entire pipeline modelled as a typed state machine with conditional edges, not a chain of if-statements.
+- **Modern LangGraph Workflow** — entire pipeline with a shared state containing conditional edges, not a chain of if-statements.
 
-- **SQLAgent Techniques** — ReAct Tool-Use Loop, Chain-of-Thought Prompting, Dynamic Few-Shot Learning, Schema Grounding. (See [SQLAgent](#1-sqlagent-generator))
+- **SQLAgent Techniques** — ReAct Tool-Use Loop, Chain-of-Thought Prompting, Dynamic Few-Shot Learning, Schema Grounding. (See [SQLAgent (Generator)](#1-sqlagent-generator))
 
-- **ValidatorAgent** — two-phase execution + semantic review with self-correction loops. (See [ValidatorAgent](#2-validatoragent-verifier--fixer))
+- **ValidatorAgent** — two-phase execution + semantic review with self-correction loops. (See [ValidatorAgent (Verifier + Fixer)](#2-validatoragent-verifier--fixer))
 
 - **K-Candidate Generation with Temperature Diversity** — Generates candidates at varied temperatures and exits as soon as the first one passes execution and semantic review. Easy and medium queries almost always succeed on the first attempt (temperature 0.7) and cost exactly one generation. Hard queries benefit from temperature diversity and retry resilience when the first attempt fails.
 
@@ -173,27 +199,28 @@ utils/prompts.py
 ```
 
 #### **Dynamic Few-Shot Learning**
-  Injects relevant example queries per question to assist LLM. Uses embedding similarity to select the top 3 most relevant examples from a query bank of different example prompts.
+  Injects relevant example queries per question to assist LLM. Uses embedding similarity to select the top 3 most relevant examples from a curated bank of 23 patterns covering basic aggregations, multi-table JOINs, self-joins, subqueries, CTEs, window functions, top-per-group problems, and common pitfalls with explicit counter-examples.
 ```
-agents/SQLAgent.py
+src/utils/fewShotExamples.py
 
-      #Different Examples included in the agent
-      def setupFewShotExamples(self) -> List[FewShotExample]:
-            FewShotExample(
-                question="How many products are in each category?",
-                sql="SELECT c.category_name, COUNT(p.product_id) FROM categories c LEFT JOIN products p ON c.category_id = p.category_id GROUP BY c.category_name",
-                explanation="JOIN with GROUP BY aggregation"
-            ),
-            FewShotExample(
-                question="Which stores have the most inventory?",
-                sql="SELECT s.store_name, SUM(st.quantity) as total_inventory FROM stores s JOIN stocks st ON s.store_id = st.store_id GROUP BY s.store_id, s.store_name ORDER BY total_inventory DESC",
-                explanation="Multi-table JOIN with GROUP BY and ORDER BY"
-            ),
-            FewShotExample(
-                question="Find customers who have never placed an order",
-                sql="SELECT first_name, last_name, email FROM customers WHERE customer_id NOT IN (SELECT DISTINCT customer_id FROM orders)",
-                explanation="Subquery with NOT IN for exclusion"
-            ),
+FEW_SHOT_EXAMPLES = [
+    FewShotExample(
+        question="How many products are in each category?",
+        sql="SELECT c.category_name, COUNT(p.product_id) FROM categories c LEFT JOIN products p ON c.category_id = p.category_id GROUP BY c.category_name",
+        explanation="JOIN with GROUP BY aggregation"
+    ),
+    FewShotExample(
+        question="For each store, show the most expensive product in stock",
+        sql="SELECT s.store_name, p.product_name, p.list_price FROM stores s JOIN stocks st ON s.store_id = st.store_id JOIN products p ON st.product_id = p.product_id WHERE (s.store_id, p.list_price) IN (SELECT st2.store_id, MAX(p2.list_price) FROM stocks st2 JOIN products p2 ON st2.product_id = p2.product_id GROUP BY st2.store_id)",
+        explanation="Top-1 per group pattern: use subquery to find MAX per group."
+    ),
+    FewShotExample(
+        question="Which staff members manage other staff?",
+        sql="SELECT m.first_name, m.last_name, COUNT(s.staff_id) FROM staffs m JOIN staffs s ON m.staff_id = CAST(s.manager_id AS BIGINT) GROUP BY m.staff_id, m.first_name, m.last_name",
+        explanation="Self-join hierarchy pattern: alias table twice and join ON manager_id."
+    ),
+    # ... 20 more patterns
+]
 
 ```
 
@@ -284,7 +311,7 @@ When enabled, the pipeline will pause on ambiguous queries, ask a targeted quest
 
 ---
 
-## 6. Code Organization
+# 6. Code Organization
 
 Organized to be readable and scalable. I use Pydantic schemas to reduce errors and provide the LLM with a consistent output format. The LangGraph workflow, agents, utils (with helpers and prompts) and tests I used are all organized in their own respective folders.
 
@@ -311,8 +338,9 @@ carleton_competition_winter_2026/
     │
     ├── utils/
     │   ├── helpers.py              # loadSchema, buildSchemaContext, executeSQL
-    │   |── prompts.py              # System + user prompt builders
-    |   └── constants.py            # Constants
+    │   ├── prompts.py              # System + user prompt builders
+    │   ├── fewShotExamples.py      # Bank of few-shot examples for SQLAgent
+    │   └── constants.py            # Constants
     │
     └── testing/                    # Test suite and saved test results
 ```
@@ -320,7 +348,7 @@ carleton_competition_winter_2026/
 
 ---
 
-## 7. Challenges Faced
+# 7. Challenges Faced
 
 I went through lots of trial and error to solve this problem. Originally, I had 3 agents: a QuestionDecomposerAgent, a SchemaExpertAgent, and an SQLGeneration Agent. Although this type of architecture may seem advanced, it was inaccurate and error-prone. After some research, I realized that a multi-agent workflow of that format is not useful for this problem. A degree of error is carried over from each agent, and if the first agent misunderstood the question even slightly, the whole workflow is ruined. I also played around with a RAG (Retrieval Augmented Generation) setup to add more context, but for this dataset, the schema is small enough to fit directly in the prompt. RAG added extra complexity, latency and didn’t help enough to justify it.
 
@@ -328,7 +356,7 @@ After that, I pivoted to my more reliable setup one "MASTER" SQL agent that focu
 
 ---
 
-## 8. About Me
+# 8. About Me
 
 Hi! I’m Ansh Kakkar, a 3rd-year Computer Science student at Carleton University. I love building things, joining hackathons and learn by making personal projects in my free time.
 
