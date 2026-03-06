@@ -63,7 +63,7 @@ class QueryWriter:
         self.graph = SqlGenerationPipeline(self.agent, self.validator)
 
         # MUST be False during automated evaluations to avoid hanging on input().
-        self.multi_conversational_enabled = True
+        self.multi_conversational_enabled = False
     
     def generate_query(self, prompt: str) -> str:
         """

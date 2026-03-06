@@ -1,10 +1,8 @@
 """
-testAgentPipeline.py — Run test queries through the competition interface.
+testAgentPipeline.py 
 
 Invokes QueryWriter.generate_query() exactly as the competition evaluator would,
 then prints the final LangGraph state and saves all results to a JSON file.
-
-Configure CATEGORIES to choose which query groups to run.
 """
 
 import sys
@@ -20,7 +18,8 @@ from agent import QueryWriter
 from src.testing.queriesToTest import ALL_QUERIES
 
 # ── Configure which categories to run ─────────────────────────────── #
-CATEGORIES = ['medium', 'hard', 'hard_advanced', 'ambiguous', 'nonsense']
+CATEGORIES = ['easy', 'medium', 'hard', 'hard_advanced', 'ambiguous', 'nonsense']
+# CATEGORIES = ['medium', 'hard', 'hard_advanced', 'ambiguous', 'nonsense']
 
 
 def run(categories: list[str] = CATEGORIES) -> list[dict]:

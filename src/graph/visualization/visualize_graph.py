@@ -1,23 +1,21 @@
 """
-visualize_graph.py — Render the LangGraph pipeline to a PNG image.
-
-Compiles the graph topology without starting any LLM agents, then saves
-graph.png in the project root using LangGraph's built-in Mermaid renderer.
-
+visualize_graph.py — Render the LangGraph pipeline to a PNG image. Image gets put inside ROOT directory as graph.png
 Run:
-    python visualize_graph.py
+    python visualize_graph.py / python3 visualize_graph.py
 """
 
 import os
 import sys
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+# Walk up from src/graph/visualization/ to the repo root (contains src/)
+_HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.abspath(os.path.join(_HERE, '..', '..', '..'))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
 from src.graph.GraphWorkflow import SqlGenerationPipeline
 
-OUTPUT = os.path.join(PROJECT_ROOT, 'graph.png')
+OUTPUT = os.path.join(REPO_ROOT, 'graph.png')
 
 
 def main():

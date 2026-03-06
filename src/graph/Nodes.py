@@ -78,7 +78,7 @@ def clarificationNode(state: SQLGenerationState) -> dict:
                 clarification_q=clarification_q,
                 user_answer=user_answer,
             )
-    except Exception as e:
+    except Exception:
         print(f"Failed to get user input")
       
     return {
