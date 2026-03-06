@@ -1,12 +1,5 @@
-"""
-ValidatorAgent.py - SQL Validation Pipeline
+# ValidatorAgent.py: Validate Execution and Semantics of SQL Queries with LLM Feedback Loops
 
-Phase 1: Execution correction  (max 2 LLM fix attempts)
-Phase 2: Semantic review        (max 2 LLM review+fix attempts)
-
-Flow:
-    execute → [fix loop max 2] → semantic review → [fix loop max 2] → return
-"""
 
 import os
 import ollama
@@ -19,14 +12,9 @@ from src.utils.prompts import (
     buildFixerSystemPrompt,
 )
 from src.schemas.ValidatorAgentSchemas import ReviewResult, FixResult, ValidationResult
-
+from src.utils.constants import MAX_EXEC_FIXES, MAX_SEMANTIC_FIXES
 
 class ValidatorAgent:
-
-    #Constants for max attempts in each phase
-    MAX_EXEC_FIXES     = 2   # max LLM calls to fix execution errors
-    MAX_SEMANTIC_FIXES = 2   # max LLM review+fix cycles
-
     def __init__(self, dbPath: str):
         self.dbPath = dbPath
         self.model  = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
@@ -37,17 +25,9 @@ class ValidatorAgent:
 
     def validateSQL(self, question: str, sql: str, schemaContext: str) -> ValidationResult:
         """
-        Two-phase validation pipeline.
-
-        Phase 1 — Execution:
-            Try to execute SQL. If it fails, ask LLM to fix it.
-            Repeat at most MAX_EXEC_FIXES times.
-            If still failing → return failure result immediately.
-
-        Phase 2 — Semantic review:
-            SQL executes. Ask LLM if it correctly answers the question.
-            If rejected, ask LLM for a corrected version and re-execute.
-            Repeat at most MAX_SEMANTIC_FIXES times.
+        Two-phase validation pipeline:
+        1. Execution Verify
+        2. Semantic Review
 
         Returns:
             approved        bool   — True only if semantic review passed
@@ -61,7 +41,7 @@ class ValidatorAgent:
         """
         issues: list[str] = []
 
-        # ── Phase 1: Get the SQL to execute ──────────────────────────── #
+        # Get the SQL to execute
         sql, exec_fixes, exec_result = self.verifyExecution(
             question, sql, schemaContext, issues
         )
@@ -86,9 +66,6 @@ class ValidatorAgent:
             'issues':         issues,
         }
 
-    # ------------------------------------------------------------------ #
-    # Phase 1 — Execution                                                 #
-    # ------------------------------------------------------------------ #
 
     def verifyExecution(
         self,
@@ -98,32 +75,28 @@ class ValidatorAgent:
         issues: list,
     ):
         """
-        Try to execute SQL; fix with LLM on failure.
+        Try to execute SQL and fix with LLM on failure.
         Returns (final_sql, fixes_used, last_exec_result).
         """
 
         attempt = 0
-        while attempt <= self.MAX_EXEC_FIXES:  # ✅ Changed < to <= so we try the last fix
+        while attempt <= MAX_EXEC_FIXES:  
             result = executeSQL(self.dbPath, sql)
 
             if result['success']:
-                if attempt > 0:
-                    print(f"✅ Execution fix succeeded after {attempt} fix(es)")
                 return sql, attempt, result
 
             # Execution failed
             error_msg = result['error']
             issues.append(f"Exec error (attempt {attempt}): {error_msg}")
-            print(f"❌ Execution failed (attempt {attempt}): {error_msg}")
 
-            # Check if we can still fix
-            if attempt >= self.MAX_EXEC_FIXES:
-                break  # No more fixes allowed
+            # No more fixes allowed
+            if attempt >= MAX_EXEC_FIXES:
+                break  
 
-            # Ask LLM to fix it
+            # Fix SQL with LLM
             fixed = self.fixSQL(question, sql, error_msg, schemaContext)
             if not fixed or fixed == sql:
-                print("⚠️  LLM could not produce a different SQL — stopping exec fixes")
                 break
             sql = fixed
 
@@ -131,9 +104,6 @@ class ValidatorAgent:
 
         return sql, attempt, result
 
-    # ------------------------------------------------------------------ #
-    # Phase 2 — Semantic Review                                           #
-    # ------------------------------------------------------------------ #
 
     def reviewSqlOutput(
         self,
@@ -144,22 +114,22 @@ class ValidatorAgent:
         issues: list,
     ):
         """
-        Review SQL semantics; fix and re-execute if rejected.
+        Review SQL to ensure it matches question intent
         Returns (final_sql, fixes_used, approved, last_exec_result).
         """
-        for attempt in range(self.MAX_SEMANTIC_FIXES + 1):  
+        for attempt in range(MAX_SEMANTIC_FIXES + 1):  
             review = self.semanticReview(question, sql, schemaContext)
 
+            # Approved as-is
             if review['approved']:
-                print(f"✅ Semantic review approved (attempt {attempt})")
                 return sql, attempt, True, exec_result
 
             # Rejected
             issues.extend(review.get('issues', []))
-            print(f"⚠️  Semantic review rejected (attempt {attempt}): {review.get('issues')}")
 
-            if attempt == self.MAX_SEMANTIC_FIXES:
-                break  # No more fixes allowed
+            # No more fixes allowed
+            if attempt == MAX_SEMANTIC_FIXES:
+                break  
 
             # Get corrected SQL — prefer reviewer's suggestion, else ask LLM
             fixed = review.get('suggestion') or self.fixSQL(
@@ -168,28 +138,25 @@ class ValidatorAgent:
                 schemaContext,
             )
 
+            #Nothing was fixed avoid executing
             if not fixed or fixed == sql:
-                print("⚠️  No new SQL from semantic fix — stopping")
                 break
 
-            # Re-execute the new SQL before next review
+            # Execute fixed SQL before next review
             new_result = executeSQL(self.dbPath, fixed)
+
+            # If the fix broke execution, revert and skip further fixes
             if not new_result['success']:
                 issues.append(f"Semantic fix failed execution: {new_result['error']}")
-                print(f"❌ Semantic fix broke execution — reverting")
-                break  # Don't use a broken fix
+                break  
 
             sql = fixed
             exec_result = new_result
 
         return sql, attempt, False, exec_result
 
-    # ------------------------------------------------------------------ #
-    # LLM helpers                                                         #
-    # ------------------------------------------------------------------ #
-
     def semanticReview(self, question: str, sql: str, schemaContext: str) -> Dict[str, Any]:
-        """Ask LLM if SQL correctly answers the question."""
+        """Ask LLM to review if outputted SQL correctly answers the question of the user."""
         prompt = buildSemanticReviewPrompt(question, sql, schemaContext)
         try:
             response = self.ollamaClient.chat(
@@ -206,9 +173,6 @@ class ValidatorAgent:
                 suggestion = result.corrected_sql.rstrip(';')
             return {'approved': result.approved, 'issues': result.issues, 'suggestion': suggestion}
         except Exception as e:
-            print(f"⚠️  Semantic review error: {e}")
-            # Fail closed — let the fix loop attempt a correction rather than
-            # silently approving potentially wrong SQL.
             return {'approved': False, 'issues': [f'Review error: {e}'], 'suggestion': None}
 
     def fixSQL(
@@ -228,13 +192,10 @@ class ValidatorAgent:
             result = FixResult.model_validate_json(response['message']['content'])
             return result.sql.rstrip(';')
         except Exception as e:
-            print(f"⚠️  LLM fix error: {e}")
             return None
 
-    # ------------------------------------------------------------------ #
-    # Result builder                                                       #
-    # ------------------------------------------------------------------ #
 
+    #This is to have a faliure fallback
     def returnFailedFallback(
         self,
         sql: str,

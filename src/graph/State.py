@@ -1,3 +1,5 @@
+#State.py: Defines the shared state structure that goes through the LangGraph pipeline.
+
 from typing import Literal
 from typing_extensions import TypedDict, NotRequired
 from src.schemas.ValidatorAgentSchemas import ValidationResult

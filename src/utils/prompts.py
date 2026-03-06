@@ -1,7 +1,5 @@
-"""
-prompts.py
-Contains all prompt related functions used by the agents
-"""
+# prompts.py: Contains all prompt related functions used by the agents
+
 
 from typing import List, Any
 
@@ -208,7 +206,7 @@ You will respond in JSON with one field: "sql" containing the corrected SQL quer
 
 def buildSemanticReviewPrompt(question: str, sql: str, schemaContext: str) -> str:
     """
-    Build prompt for semantic review of a generated SQL query.
+    Builds a prompt for semantic review of a generated SQL query.
     
     Args:
         question: The user's natural language question

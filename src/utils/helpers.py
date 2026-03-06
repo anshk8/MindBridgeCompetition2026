@@ -1,5 +1,6 @@
 import duckdb
 from typing import Dict, Any
+from src.schemas.ValidatorAgentSchemas import ValidationResult
 
 
 def loadSchema(db_path: str) -> Dict[str, Any]:
@@ -145,3 +146,28 @@ def executeSQL(db_path: str, sql: str) -> Dict[str, Any]:
     finally:
         if conn:
             conn.close()
+
+def scoreCandidate(validation: ValidationResult) -> int:
+    """
+    Heuristic score for a single validated SQL candidate.
+
+    Scoring breakdown:
+        +50  executes without error
+        +40  approved by semantic review
+        +5   returns at least one row
+        -3   per execution fix applied by ValidatorAgent
+        -3   per semantic fix applied by ValidatorAgent
+    """
+    score = 0
+    # BIG penalty for candidates that fail to execute
+    if not validation.get('execution_ok'):
+        score -= 99999999999
+    else:
+        score += 50
+        if validation.get('approved'):
+            score += 40
+        if validation.get('row_count', 0) > 0:
+            score += 5
+        score -= validation.get('exec_fixes', 0) * 3
+        score -= validation.get('semantic_fixes', 0) * 3
+    return score

@@ -1,10 +1,5 @@
-"""
-ValidatorAgentSchemas.py
+#ValidatorAgentSchemas.py: Pydantic models for structured LLM outputs used by ValidatorAgent.
 
-Pydantic models for structured LLM outputs used by ValidatorAgent.
-Passed to ollama via format=Model.model_json_schema() to guarantee
-well-formed responses without any regex parsing.
-"""
 
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -17,14 +12,14 @@ class ValidationResult(TypedDict):
     Used as the type for the 'validation' field in SQLGenerationState
     and as the argument type for scoreCandidate().
     """
-    approved:       bool           # True only if semantic review passed
-    sql:            str            # final SQL (possibly corrected)
+    approved:       bool           # True if semantic review passed
+    sql:            str            # final SQL after correction(s)
     exec_fixes:     int            # how many execution fixes were needed
     semantic_fixes: int            # how many semantic fixes were needed
     execution_ok:   bool           # does the final SQL execute?
     row_count:      int            # rows returned by the final SQL
     sample_result:  NotRequired[Optional[str]]  # first row as string, or None
-    issues:         list[str]      # collected warnings / errors
+    issues:         list[str]      # List of warnings / errors
 
 
 class ReviewResult(BaseModel):

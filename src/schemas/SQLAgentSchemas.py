@@ -1,10 +1,5 @@
-"""
-SQLAgentSchemas.py
+#SQLAgentSchemas.py: Pydantic models for structured LLM outputs used by SQLAgent.
 
-Pydantic models for structured LLM outputs used by SQLAgent.
-Passed to ollama via format=Model.model_json_schema() to guarantee
-well-formed responses without any regex parsing.
-"""
 
 from enum import Enum
 from pydantic import BaseModel, Field, model_validator
