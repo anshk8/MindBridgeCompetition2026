@@ -149,6 +149,16 @@ FEW_SHOT_EXAMPLES = [
         sql="SELECT s.store_name, p.product_name, p.list_price FROM stores s JOIN stocks st ON s.store_id = st.store_id JOIN products p ON st.product_id = p.product_id WHERE (s.store_id, p.list_price) IN (SELECT st2.store_id, MAX(p2.list_price) FROM stocks st2 JOIN products p2 ON st2.product_id = p2.product_id GROUP BY st2.store_id)",
         explanation="Top-1 per group pattern: use a subquery to find the MAX per group, then filter the outer query using (group_key, max_value) IN (...). Never use GROUP BY on product_name for per-store max — that returns all products, not one per store."
     ),
+    FewShotExample(
+        question="What is the most expensive product in each brand?",
+        sql="SELECT b.brand_name, p.product_name, p.list_price FROM products p JOIN brands b ON p.brand_id = b.brand_id WHERE (p.brand_id, p.list_price) IN (SELECT brand_id, MAX(list_price) FROM products GROUP BY brand_id) ORDER BY p.list_price DESC",
+        explanation="Top-1 per group: subquery finds MAX price per brand_id, outer query filters to only those rows. NEVER use GROUP BY (brand_name, product_name) with MAX() — that groups every product separately and returns all 291 rows, not one per brand. The correct result has exactly one row per brand."
+    ),
+    FewShotExample(
+        question="Show the cheapest product in each category",
+        sql="SELECT c.category_name, p.product_name, p.list_price FROM products p JOIN categories c ON p.category_id = c.category_id WHERE (p.category_id, p.list_price) IN (SELECT category_id, MIN(list_price) FROM products GROUP BY category_id) ORDER BY p.list_price ASC",
+        explanation="Top-1 per group (MIN variant): same (group_key, extreme_value) IN (subquery) pattern. Use MIN() for cheapest. Never GROUP BY both category and product_name — that returns all products."
+    ),
 
     # --- Self-join / Hierarchy ---
     FewShotExample(

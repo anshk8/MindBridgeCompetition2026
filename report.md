@@ -147,7 +147,7 @@ Enter your question:
 
 ## Irrelevant Query Detection
 
-Queries that have no connection to a bike store database are identified and skipped before any SQL is generated or validated. Since queries will be executed, we return `SELECT NULL WHERE 1=0` preventing crashes in testing from returning blank results and print out a proper statement. See example:
+Queries that have no connection to a bike store database are identified and skipped before any SQL is generated or validated.
 
 ```
 Enter your question: Why am I feeling sick in the store?
@@ -155,7 +155,6 @@ Enter your question: Why am I feeling sick in the store?
 🎯 Intent: Irrelevant
 ❌ Query has no relevance to the bike store database.
 
-Generated SQL: SELECT NULL WHERE 1=0
 -- IRRELEVANT_QUERY: This question cannot be answered
                      from the bike store database.
 ```

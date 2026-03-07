@@ -89,12 +89,14 @@ def main():
             # Generate SQL from natural language using the QueryWriter
             print("\nGenerating SQL query...")
             sql = agent.generate_query(user_query)
-            print(f"\nGenerated SQL:\n{sql}")
 
-            # Skip execution for sentinel values returned by irrelevantNode / ambiguousNode / schema-mismatch
+             # Skip execution for sentinel values returned by irrelevantNode / ambiguousNode / schema-mismatch
             if not sql or sql.startswith('-- IRRELEVANT_QUERY') or sql.startswith('-- AMBIGUOUS_QUERY:') or sql.startswith('-- UNANSWERABLE_QUERY:'):
                 continue
 
+            print(f"\nGenerated SQL:\n{sql}")
+
+        
             # Execute the query
             print("\nExecuting query...")
             results = execute_query(sql, db_path)

@@ -63,7 +63,7 @@ class QueryWriter:
         self.graph = SqlGenerationPipeline(self.agent, self.validator)
 
         # MUST be False during automated evaluations to avoid hanging on input().
-        self.multi_conversational_enabled = False
+        self.multi_conversational_enabled = True
     
     def generate_query(self, prompt: str) -> str:
         """
@@ -103,7 +103,7 @@ class QueryWriter:
             # Convert sentinels to valid empty-result SQL before returning
             SENTINELS = ('-- IRRELEVANT_QUERY', '-- AMBIGUOUS_QUERY', '-- UNANSWERABLE_QUERY')
             if any(finalSql.startswith(s) for s in SENTINELS):
-                return "SELECT NULL WHERE 1=0"
+                return finalSql
 
             return self._clean_sql(finalSql)
 
