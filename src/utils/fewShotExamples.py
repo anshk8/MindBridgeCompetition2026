@@ -143,6 +143,24 @@ FEW_SHOT_EXAMPLES = [
         explanation="Store revenue must go through orders not stocks. stocks is inventory only. Correct path: stores -> orders -> order_items"
     ),
 
+    # --- Products Sold = SUM(order_items.quantity), NOT COUNT(orders) ---
+    FewShotExample(
+        question="Give me the top 3 staff who have sold the most products",
+        sql="""SELECT s.first_name, s.last_name, SUM(oi.quantity) AS total_products_sold
+            FROM staffs s
+            JOIN orders o ON s.staff_id = o.staff_id
+            JOIN order_items oi ON o.order_id = oi.order_id
+            GROUP BY s.staff_id, s.first_name, s.last_name
+            ORDER BY total_products_sold DESC
+            LIMIT 3""",
+        explanation=(
+            "'Products sold' means SUM(oi.quantity) from order_items — NOT COUNT(o.order_id). "
+            "COUNT(order_id) measures orders handled, not units sold. "
+            "Always join staffs → orders → order_items and use SUM(quantity) "
+            "when the question asks about products sold, units sold, or items sold."
+        )
+    ),
+
     # --- Top-per-group pattern ---
     FewShotExample(
         question="For each store, show the most expensive product in stock",
@@ -197,4 +215,5 @@ FEW_SHOT_EXAMPLES = [
         sql="WITH customer_spending AS (SELECT c.customer_id, c.first_name, c.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name) SELECT first_name, last_name, total_spent FROM customer_spending WHERE total_spent > (SELECT AVG(total_spent) FROM customer_spending) ORDER BY total_spent DESC",
         explanation="Above-average pattern: CTE computes per-customer totals, then a scalar subquery on the same CTE gets AVG. Cleaner than nested subqueries. Always include total_spent in SELECT so results are meaningful."
     ),
+
 ]

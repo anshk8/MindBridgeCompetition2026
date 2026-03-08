@@ -71,24 +71,24 @@ class SQLAgent:
 
     def generate(self, question: str, temperature: float = 0.7) -> SQLResult:
         """Generate SQL with a focused tool-probe call then a structured SQL generation call."""
-        print(f"\nGenerating Query for: {question}")
 
-        # ── Phase 1: Tool probe ─────────────────────────────────── #
-        # Separate conversation focused only on looking up named values.
+        # First step focused on ReAct tool use to get concrete observations from the database about the question
         # Tool results are collected and later injected into the SQL prompt.
         ReActLoopMessages = [
             {'role': 'system', 'content': buildToolSystemPrompt()},
             {'role': 'user',   'content': question},
         ]
-        toolObservations = []  # plain-text results to inject into SQL context
 
-        print("\nRUNNING ReAct Tool Loop (if needed) and Intent classification...")
+        # Store any information from tools to inject into the final SQL generation step for more context. 
+        toolObservations = []  
+
+        print("Generating...")
         for _ in range(2):
             probe_response = self.ollamaClient.chat(
                 model=self.toolLoopModel,
                 messages=ReActLoopMessages,
                 tools=getTools(),
-                options={'temperature': 0.0},  # deterministic for lookups
+                options={'temperature': 0.0},  
             )
 
             tool_calls = probe_response['message'].get('tool_calls') or []
@@ -104,12 +104,15 @@ class SQLAgent:
                 ReActLoopMessages.append({'role': 'tool', 'content': result_text})
                 toolObservations.append(f"[{func_name}] {result_text}")
 
-        # ── Phase 2: SQL generation ───────────────────────────── #
-        # Fresh conversation with schema + few-shot + any tool observations.
+        # ── SQL generation here ───────────────────────────── #
+        # Fresh conversation with 5 similar few-shot examples + any tool observations.
         similarExamples = self.findSimilarQueryExamples(question, topK=5)
         fewShotContext  = buildFewShotContext(similarExamples)
 
+        #Build prompt wiht examples and schema context
         userPrompt = buildUserPrompt(question, self.schemaContext, fewShotContext)
+
+        #Inject any tool observations from the ReAct loop as additional context for the SQL generation step, which can help ground the model's output in concrete data and reduce hallucinations.
         if toolObservations:
             userPrompt += '\n\nVERIFIED VALUES FROM DATABASE LOOKUP:\n' + '\n'.join(toolObservations)
 
@@ -118,7 +121,7 @@ class SQLAgent:
             {'role': 'user',   'content': userPrompt},
         ]
 
-        # Structured SQL generation call — format enforced, no tools.
+        # Structured SQL generation call format enforced, no tools.
         final_response = self.ollamaClient.chat(
             model=self.model,
             messages=sql_messages,

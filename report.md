@@ -6,7 +6,7 @@
 
 ## Table of Contents
 
-1. [HIGH Level Architecture Overview](#1-high-level-architecture-overview)
+1. [High Level Architecture Overview](#1-high-level-architecture-overview)
 2. [Why My Solution Stands Out](#2-why-my-solution-stands-out)
 3. [Handling Ambiguous & Irrelevant Queries](#3-handling-ambiguous--irrelevant-queries)
 4. [Agent Design + Techniques](#4-agent-design--techniques)
@@ -17,7 +17,7 @@
 
 ---
 
-# 1. HIGH Level Architecture Overview
+# 1. High Level Architecture Overview
 
 My submission uses a **two-stage agentic pipeline** orchestrated by LangGraph:
 
@@ -30,63 +30,60 @@ My submission uses a **two-stage agentic pipeline** orchestrated by LangGraph:
 ## Full Workflow
 
 ```
-                              ┌─────────────────────┐
-                              │   User Question     │
-                              └──────────┬──────────┘
-                                         │
-                                         v
-                    ┌────────────────────────────────────────────┐
-                    │     generateSqlNode: SQLAgent              │
-                    │     (ReAct Tool-Use Loop)                  │
-                    │                                            │
-                    │  ┌──────────────────────────────────────┐  │
-                    │  │ Tool-use loop (max 2 rounds):        │  │
-                    │  │  • search_value(term)                │  │
-                    │  │  • get_distinct_values(col)          │  │
-                    │  │  • get_columns(table)                │  │
-                    │  └──────────────────────────────────────┘  │
-                    │                                            │
-                    │  Output: SQL + Intent Classification       │
-                    │  Intents: Clear / Ambiguous / Irrelevant   │
-                    └──────────────┬─────────────────────────────┘
-                                   │
-            ┌──────────────┬───────┼─────────────┬──────────────┐
-            │              │       │             │              │
-        Irrelevant     Ambiguous  Ambiguous    Clear         (fallback)
-        (invalid)    (multiConversational  (multiConversational  Intent
-                          =OFF)               =ON)
-            │              │       │             │
-            v              v       v             v
-         Return        Return  Ask User    kCandidatesNode
-          NULL      Hint Comment  for      (Multi-temp loop)
-         Query                 Input    ┌─────────────────┐
-                                        │ Temp 0.7 → Val? │
-                                  ┌─────┤  Exit on pass   │
-                                  │     │ Temp 0.3 → Val? │
-                                  │     │ Temp 1.0 → Val? │
-                                  │     │ ...retry...     │
-                                  │     └─────────────────┘
-                                  │              │
-                                  │              v
-                                  │     ┌──────────────────────┐
-                                  │     │  ValidatorAgent      │
-                                  │     │  ┌────────────────┐  │
-                                  │     │  │ Execute SQL    │  │
-                                  │     │  │ Repair (≤2x)   │  │
-                                  │     │  │ Semantic check │  │
-                                  │     │  │ Fix output     │  │
-                                  │     │  └────────────────┘  │
-                                  │     └──────────┬───────────┘
-                                  │                │
-                                  │            Pass?
-                                  │                │
-                                  │          ┌─────┴─────┐
-                                  │          │           │
-                                  │         Yes         No
-                                  │          │           │
-                                  │          v           v
-                                  └──────►Return    Retry or
-                                          Final SQL  Fail
+                                   ┌─────────────────────-┐
+                                   │   User Question      │
+                                   └──────────┬───────────┘
+                                              │
+                                              v
+                    ┌──────────────────────────────────────────────┐
+                    │         generateSqlNode: SQLAgent            │◄─────────────┐
+                    │         (ReAct Tool-Use Loop)                │              │
+                    │                                              │              │
+                    │  ┌────────────────────────────────────────┐  │              │
+                    │  │  Tool-use loop (max 2 rounds):         │  │              │
+                    │  │   • search_value(term)                 │  │              │
+                    │  │   • get_distinct_values(table, col)    │  │              │
+                    │  │   • get_columns(table)                 │  │              │
+                    │  └────────────────────────────────────────┘  │              │
+                    │                                              │              │
+                    │  Output: SQL + Intent Classification         │              │
+                    │  Intents: Clear / Ambiguous / Irrelevant     │              │
+                    └───────────────────┬──────────────────────────┘              │
+                                        │                                         │
+          ┌─────────────────────────────┼──────────────────────────────────┐      │
+          │                             │                                  │      │
+          v                             v                                  v      │
+     Irrelevant                    Ambiguous                             Clear    │
+          │                             │                                  │      │
+          v                  ┌──────────┴───────────┐                      v      │
+     Return NULL             │                      │                  kCandidatesNode
+      Query         multiConversational=OFF   multiConversational=ON   ┌──────────────────┐
+                             │                      │                  │ Temp 0.7 → Val?  │
+                             v                      v                  │  Exit on pass    │
+                        Return Hint        ┌─────────────────┐         │ Temp 0.3 → Val?  │
+                         Comment           │clarificationNode│         │ Temp 1.0 → Val?  │
+                                           │  Ask User for   │         │  ...retry...     │
+                                           │  Input, Reframe │         └────────┬─────────┘
+                                           │  Question       │                  │
+                                           └────────┬────────┘                  v
+                                                    │              ┌───────────────────────┐
+                                                    │              │    ValidatorAgent     │
+                                                    │              │  ┌─────────────────┐  │
+                                                    └──────────────►  │  Execute SQL    │  │
+                                              (re-runs SQLAgent)   │  │  Repair (≤2x)   │  │
+                                                                   │  │  Semantic check │  │
+                                                                   │  │  Fix output     │  │
+                                                                   │  └─────────────────┘  │
+                                                                   └──────────┬────────────┘
+                                                                              │
+                                                                           Pass?
+                                                                        ┌─────┴──────┐
+                                                                        │            │
+                                                                       Yes           No
+                                                                        │            │
+                                                                        v            v
+                                                                    Return       Retry or
+                                                                    Final SQL      Fail
 ```
 
 ---
@@ -201,7 +198,7 @@ utils/prompts.py
         Step 9: Is a LIMIT needed?
       
 ```
-**NOTE: Step 1 is Apart of Intent Clarification Written Above these Steps**, see `src/utils/prompts.py`
+**NOTE: Step 1 is a part of the intent clarification written above these steps**, see `src/utils/prompts.py`
 
 #### **Dynamic Few-Shot Learning**
   Embedding model: **`all-MiniLM-L6-v2`** (via `sentence-transformers`) — lightweight, fast, and accurate enough for semantic query matching.
@@ -343,7 +340,11 @@ carleton_competition_winter_2026/
     ├── graph/
     │   ├── GraphWorkflow.py        # LangGraph workflow definition & conditional edges
     │   ├── Nodes.py                # Node functions (generateSqlNode, kCandidatesNode, ...)
-    │   └── State.py                # Typed shared state schema
+    │   ├── State.py                # Typed shared state schema
+    |   |
+    │   └── visualization/
+    │       ├── visualize_graph.py  # Not submission relevant — visualize graph for fun
+    │       └── graph.png           # Generated LangGraph workflow visualization
     │
     ├── schemas/                    # Pydantic output schemas for SQLAgent + ValidatorAgent
     │

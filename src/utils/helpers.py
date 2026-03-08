@@ -117,7 +117,7 @@ def executeSQL(db_path: str, sql: str) -> Dict[str, Any]:
     try:
         # Open the database in read-only mode since this helper is used for validation
         conn = duckdb.connect(db_path, read_only=True)
-        # Normalize SQL: trim whitespace and remove any trailing semicolon
+        # Trim whitespace and remove any trailing semicolon
         normalized_sql = sql.strip()
         if normalized_sql.endswith(";"):
             normalized_sql = normalized_sql[:-1].rstrip()
@@ -149,7 +149,7 @@ def executeSQL(db_path: str, sql: str) -> Dict[str, Any]:
 
 def scoreCandidate(validation: ValidationResult) -> int:
     """
-    Heuristic score for a single validated SQL candidate.
+    Heuristic score for a single validated SQL candidate. Used inside kCandidateNode to rank multiple candidates
 
     Scoring breakdown:
         +50  executes without error

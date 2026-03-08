@@ -41,16 +41,15 @@ class ValidatorAgent:
         """
         issues: list[str] = []
 
-        # Get the SQL to execute
+        # ── Execution verification with LLM feedback loop ──────────────────────────────────── 
         sql, exec_fixes, exec_result = self.verifyExecution(
             question, sql, schemaContext, issues
         )
-
         if not exec_result['success']:
             # Still broken after all fixes — give up
             return self.returnFailedFallback(sql, exec_fixes, 0, exec_result, issues)
 
-        # ── Phase 2: Semantic review ──────────────────────────────────── #
+        # ── Semantic review ──────────────────────────────────── 
         sql, semantic_fixes, approved, exec_result = self.reviewSqlOutput(
             question, sql, schemaContext, exec_result, issues
         )

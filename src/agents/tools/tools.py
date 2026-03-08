@@ -9,10 +9,7 @@ import duckdb
 from typing import Any, Dict, List
 
 
-# ────────────────────────────────────────────────────────────────── #
-# Tool 1: get_distinct_values                                        #
-# ────────────────────────────────────────────────────────────────── #
-
+# Tool 1
 def get_distinct_values(
     db_path: str,
     schema_info: Dict[str, Any],
@@ -29,7 +26,7 @@ def get_distinct_values(
     Returns a list of stringified values, or a single-element list
     containing an error message if the lookup fails.
     """
-    # ── Validate against schema (prevents SQL injection) ──────────── #
+    # ── Validate against schema #
     if table not in schema_info:
         return [f"Error: table '{table}' does not exist. Valid tables: {', '.join(sorted(schema_info))}"]
 
@@ -37,7 +34,7 @@ def get_distinct_values(
     if column not in valid_columns:
         return [f"Error: column '{column}' does not exist in '{table}'. Valid columns: {', '.join(sorted(valid_columns))}"]
 
-    # ── Execute ───────────────────────────────────────────────────── #
+    #Execute to get results and return as list of strings, then close connection
     conn = None
     try:
         conn = duckdb.connect(db_path, read_only=True)
@@ -52,10 +49,7 @@ def get_distinct_values(
             conn.close()
 
 
-# ────────────────────────────────────────────────────────────────── #
-# Tool 2: search_value                                               #
-# ────────────────────────────────────────────────────────────────── #
-
+# Tool 2
 def search_value(
     db_path: str,
     schema_info: Dict[str, Any],
@@ -109,10 +103,7 @@ def search_value(
             conn.close()
 
 
-# ────────────────────────────────────────────────────────────────── #
-# Tool 3: get_columns                                                #
-# ────────────────────────────────────────────────────────────────── #
-
+# Tool 3
 def get_columns(
     schema_info: Dict[str, Any],
     table: str,

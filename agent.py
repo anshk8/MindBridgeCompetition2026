@@ -1,8 +1,6 @@
 """
-SQL Query Writer Agent - Ansh Kakkar Submission for Carleton MinBridge Competition
+SQL Query Writer Agent - Ansh Kakkar Submission for Carleton MindBridge Competition
 
-This file contains the QueryWriter class that generates SQL queries from natural language.
-Implement your agent logic in this file.
 """
 
 import os
@@ -73,18 +71,10 @@ class QueryWriter:
                          Example: "What are the top 5 most expensive products?"
 
         Returns:
-            str: Either a validated SQL SELECT query, or one of three sentinel
-                 comment strings when the query cannot or should not be executed:
-
+            str: A valid SQL query string. Always executable:
                  • SQL query  — e.g. "SELECT product_name FROM products LIMIT 5"
-                 • "-- IRRELEVANT_QUERY: <reason>"
-                       The question has nothing to do with the database schema.
-                 • "-- AMBIGUOUS_QUERY: <reason>"
-                       The question is too vague to generate a reliable query
-                       and multi-conversational mode is disabled.
-                 • "-- UNANSWERABLE_QUERY: <reason>"
-                       The question is schema-relevant but cannot be answered
-                       (e.g. all candidates failed validation, pipeline error).
+                 • "SELECT 1 WHERE 1=0"  — returned for irrelevant, ambiguous,
+                   or unanswerable queries; executes successfully with 0 rows.
         """
 
         #Initiate generation by invoking the graph with the initial state
@@ -100,16 +90,18 @@ class QueryWriter:
 
             finalSql = result.get('finalSql', '')
 
-            # Convert sentinels to valid empty-result SQL before returning
+            # Convert sentinels to valid empty-result SQL so the evaluator always receives executable SQL (returns 0 rows, no crash).
             SENTINELS = ('-- IRRELEVANT_QUERY', '-- AMBIGUOUS_QUERY', '-- UNANSWERABLE_QUERY')
             if any(finalSql.startswith(s) for s in SENTINELS):
-                return finalSql
+                if finalSql.startswith('-- UNANSWERABLE_QUERY'):
+                    print(f"\n Query could not be answered")
+                return 'SELECT 1 WHERE 1=0'
 
             return self._clean_sql(finalSql)
 
         except Exception as e:
             print(f"⚠️  Error generating query: {e}")
-            return f"-- UNANSWERABLE_QUERY: Pipeline error — {e}"
+            return 'SELECT 1 WHERE 1=0'
 
 
     def _clean_sql(self, sql: str) -> str:

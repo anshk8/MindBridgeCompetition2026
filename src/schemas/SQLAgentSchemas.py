@@ -37,7 +37,7 @@ class SQLResult(BaseModel):
         description=(
             "The final SQL SELECT query. No markdown, no explanation — just the raw SQL. "
             "If intent is Irrelevant, set to empty string. "
-            "If intent is Ambiguous, generate a best-effort SQL using the most likely interpretation."
+            "If intent is Ambiguous, set to an empty string — "
         )
     )
 

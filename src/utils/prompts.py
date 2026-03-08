@@ -1,4 +1,4 @@
-# prompts.py: Contains all prompt related functions used by the agents
+# prompts.py: Contains all system/user prompt building functions used by the agents across the whole project
 
 
 from typing import List, Any

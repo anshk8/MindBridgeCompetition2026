@@ -2,27 +2,14 @@
 agents/tools/toolHelpers.py
 
 Helpers that bridge Ollama's tool-calling protocol with the actual DB
-lookup functions in tools.py.
-
-Why is executeTool needed?
-──────────────────────────
-When you pass `tools=` to the Ollama (or any LLM) client, the model does
-NOT execute your Python functions.  It only returns a structured message
-that says "I want to call <function> with <args>".  Your application must
-read that message, actually run the function, and feed the result back as
-a 'tool' role message.  There is no way to skip this step — frameworks
-like LangChain just wrap the same loop inside an abstraction.
+lookup functions in tools.py. 
 """
 
 from typing import Any, Dict, List
-
 from src.agents.tools.tools import get_distinct_values, search_value, get_columns
 
 
-# ────────────────────────────────────────────────────────────────── #
-# Tool definitions (Ollama tool-calling format)                      #
-# ────────────────────────────────────────────────────────────────── #
-
+#Get the tool definitions to give to Ollama so it can call them from the LLM response messages
 def getTools() -> List[dict]:
     """Return the three DB lookup tools in Ollama's tool-calling format."""
     return [
@@ -82,24 +69,18 @@ def getTools() -> List[dict]:
     ]
 
 
-# ────────────────────────────────────────────────────────────────── #
-# Tool dispatcher                                                    #
-# ────────────────────────────────────────────────────────────────── #
-
+# For executing a tool call from an Ollama response message and return results for more context before SQL generation
 def executeTool(
     tool_call: dict,
     db_path: str,
     schema_info: Dict[str, Any],
 ) -> List[str]:
     """
-    Dispatch an Ollama tool_call dict to the matching DB lookup function.
-
     The LLM cannot run Python code — it returns a structured message
     requesting a tool call.  This function reads that message and
     actually executes the corresponding function, returning results as
-    a list of strings that are appended to the conversation as a
-    'tool' role message.
-
+    a list of strings.
+    
     Parameters
     ----------
     tool_call   : the tool_call entry from the Ollama response message
