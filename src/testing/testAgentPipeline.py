@@ -16,10 +16,12 @@ if PROJECT_ROOT not in sys.path:
 
 from agent import QueryWriter
 from src.testing.queriesToTest import ALL_QUERIES
+from src.testing.queriesToTest import MIXED_QUERIES
+from src.testing.queriesToTest import TEST_MULTICONVERSATION_QUERIES
 
 # ── Configure which categories to run ─────────────────────────────── #
-CATEGORIES = ['easy', 'medium', 'hard', 'hard_advanced', 'ambiguous', 'nonsense']
-# CATEGORIES = ['medium', 'hard', 'hard_advanced', 'ambiguous', 'nonsense']
+# CATEGORIES = ['easy', 'medium', 'hard', 'hard_advanced', 'ambiguous', 'nonsense']
+CATEGORIES = ['clarification', 'irrelevant']  # focus on challenging categories for testing
 
 
 def run(categories: list[str] = CATEGORIES) -> list[dict]:
@@ -29,7 +31,7 @@ def run(categories: list[str] = CATEGORIES) -> list[dict]:
     results = []
 
     for category in categories:
-        queries = ALL_QUERIES.get(category, [])
+        queries = TEST_MULTICONVERSATION_QUERIES.get(category, [])
         if not queries:
             continue
 

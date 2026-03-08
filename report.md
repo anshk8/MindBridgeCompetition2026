@@ -10,7 +10,7 @@
 2. [Why My Solution Stands Out](#2-why-my-solution-stands-out)
 3. [Handling Ambiguous & Irrelevant Queries](#3-handling-ambiguous--irrelevant-queries)
 4. [Agent Design + Techniques](#4-agent-design--techniques)
-5. [Enabling Features](#5-enabling-features)
+5. [Enabling MultiConversational Mode](#5-enabling-multiconversational-feature)
 6. [Code Organization](#6-code-organization)
 7. [Challenges Faced](#7-challenges-faced)
 8. [About Me](#8-about-me)
@@ -53,7 +53,8 @@ My submission uses a **two-stage agentic pipeline** orchestrated by LangGraph:
             ┌──────────────┬───────┼─────────────┬──────────────┐
             │              │       │             │              │
         Irrelevant     Ambiguous  Ambiguous    Clear         (fallback)
-        (invalid)    (mc=False)   (mc=True)   Intent
+        (invalid)    (multiConversational  (multiConversational  Intent
+                          =OFF)               =ON)
             │              │       │             │
             v              v       v             v
          Return        Return  Ask User    kCandidatesNode
@@ -152,11 +153,10 @@ Queries that have no connection to a bike store database are identified and skip
 ```
 Enter your question: Why am I feeling sick in the store?
 
-🎯 Intent: Irrelevant
-❌ Query has no relevance to the bike store database.
+  Query has no relevance to the bike store database.
 
--- IRRELEVANT_QUERY: This question cannot be answered
-                     from the bike store database.
+Enter your question: 
+
 ```
 
 ---
@@ -172,6 +172,11 @@ This system is built as a **multi-agent architecture** where each agent has a cl
 
 **Role:** Converts natural language questions into SQL queries.
 
+**Models:**
+- `qwen2.5-coder:14b` — SQL generation. Strong code reasoning and structured JSON output via schema enforcement.
+- `llama3.1:8b` — ReAct tool-use loop. Used separately because `qwen2.5-coder` has poor function-calling support; `llama3.1:8b` reliably decides when and how to invoke tools.
+- `all-MiniLM-L6-v2` — Sentence embedding for dynamic few-shot retrieval (via `sentence-transformers`).
+
 ### Techniques Used:
 
 #### **Chain-of-Thought (CoT) Prompting**  
@@ -183,22 +188,25 @@ utils/prompts.py
 
          ...
    
-         REASONING PROCESS:
-         You must think through each query step-by-step using Chain-of-Thought reasoning:
+        REASONING PROCESS:
+        You must think through each query step-by-step using Chain-of-Thought reasoning:
          
-         Step 1: What tables are needed?
-         Step 2: What columns should be selected?
-         Step 3: Are any JOINs needed? If yes, what are the JOIN conditions?
-         Step 4: Are any WHERE filters needed? If yes, what conditions?
-         Step 5: Are any aggregations needed (COUNT, SUM, AVG, etc.)?
-         Step 6: Is GROUP BY needed? If yes, which columns?
-         Step 7: Is sorting needed (ORDER BY)? If yes, which columns and direction?
-         Step 8: Is a LIMIT needed?
+        Step 2: What tables are needed?
+        Step 3: What columns should be selected?
+        Step 4: Are any JOINs needed?
+        Step 5: Are any WHERE filters needed?
+        Step 6: Are any aggregations needed (COUNT, SUM, AVG, etc.)?
+        Step 7: Is GROUP BY needed?
+        Step 8: Is ORDER BY needed?
+        Step 9: Is a LIMIT needed?
       
 ```
+**NOTE: Step 1 is Apart of Intent Clarification Written Above these Steps**, see `src/utils/prompts.py`
 
 #### **Dynamic Few-Shot Learning**
-  Injects relevant example queries per question to assist LLM. Uses embedding similarity to select the top 3 most relevant examples from a curated bank of 23 patterns covering basic aggregations, multi-table JOINs, self-joins, subqueries, CTEs, window functions, top-per-group problems, and common pitfalls with explicit counter-examples.
+  Embedding model: **`all-MiniLM-L6-v2`** (via `sentence-transformers`) — lightweight, fast, and accurate enough for semantic query matching.
+
+  Injects relevant example queries per question to assist LLM. Uses cosine similarity over sentence embeddings to select the top 5 most relevant examples from a curated bank of 20+ patterns covering basic aggregations, multi-table JOINs, self-joins, subqueries, CTEs, window functions, top-per-group problems, and common pitfalls with explicit counter-examples.
 ```
 src/utils/fewShotExamples.py
 
@@ -225,6 +233,8 @@ FEW_SHOT_EXAMPLES = [
 
 
 #### **ReAct Tool-Use Loop (Reasoning + Acting)**
+Model: **`llama3.1:8b`** — chosen for its native function-calling support, which makes tool usage reliable and deterministic.
+
 Instead of hoping the LLM remembers every column name and value correctly, the SQLAgent wraps its generation in a **ReAct loop** where the model can reason about the question, decide it needs to verify something, call a tool, get real data back and enrich its information before generating the SQL.
 
 The loop runs up to 2 tool rounds before requiring a final answer. If the LLM decides it doesn't need any tools, it skips straight to SQL generation, so we can reduce overhead for simple queries.
@@ -280,7 +290,9 @@ utils/prompts.py
 ## 2. ValidatorAgent (Verifier + Fixer)
 
 **Role:**  
-Ensures that generated SQL is both executable and semantically correct before returning to the user. 
+Ensures that generated SQL is both executable and semantically correct before returning to the user.
+
+**Model: `qwen2.5-coder:14b`** — same model as SQL generation, reused here for execution repair and semantic review since it already has strong code reasoning and schema familiarity from the generation phase.
 
 ### Techniques Used
 
@@ -293,7 +305,7 @@ Ensures that generated SQL is both executable and semantically correct before re
 
 ---
 
-# 5. Enabling Features
+# 5. Enabling Multiconversational Feature
 
 ## Multi-Conversational Mode
 
@@ -341,7 +353,7 @@ carleton_competition_winter_2026/
     │   ├── fewShotExamples.py      # Bank of few-shot examples for SQLAgent
     │   └── constants.py            # Constants
     │
-    └── testing/                    # Test suite and saved test results
+    └── testing/                    # I used an automated script to help improve my submission
 ```
 
 

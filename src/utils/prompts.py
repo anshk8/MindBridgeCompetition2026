@@ -8,7 +8,7 @@ from typing import List, Any
 # SQL Agent Prompts                                                  #
 # ================================================================= #
 
-def buildToolProbeSystemPrompt() -> str:
+def buildToolSystemPrompt() -> str:
     """Focused prompt for the tool-use probe call — no SQL generation, just value lookups."""
     return """You are a database assistant. Your ONLY job is to verify values before SQL is written.
 
@@ -94,34 +94,35 @@ If NO → intent = "Irrelevant", sql = "", clarification_question = "", STOP.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STEP 1 — AMBIGUITY CHECK (only if database-related)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Does the question use a vague word WITHOUT a concrete metric?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Vague words: best, worst, popular, favourite, important, good, bad, performing, significant, notable, leading
+Does the question use a vague word WITHOUT a concrete metric or threshold?
 
-If yes → intent = "Ambiguous", set clarification_question, still generate best-effort SQL.
+Vague words (subjective quality):
+  best, worst, popular, favourite, important, good, bad, performing,
+  significant, notable, leading, loyal, underperforming, trending
 
-NOT vague when metric is explicit: "highest revenue", "most orders", "lowest price", "most recent".
+Vague thresholds (need a number/range):
+  high-value, low-value, expensive, cheap, large, small, 
+  frequent, infrequent, slow-moving, fast-moving
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TOOL USE — call tools BEFORE writing SQL when values are uncertain
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-You have three read-only tools:
+Vague time references (need a specific date/range):
+  recent, old, new, latest, current, soon, lately, these days
 
-  get_distinct_values(table, column)
-      → Verify exact string casing for a WHERE filter (brand names, store names,
-        city names, state codes, category names, etc.).
-        Example: question mentions "Trek" → call get_distinct_values("brands", "brand_name")
+If the question contains ANY of the above WITHOUT an explicit metric
+or threshold → intent = "Ambiguous", set clarification_question.
 
-  search_value(term)
-      → Fuzzy-search ALL varchar columns for a term when you are unsure which
-        table/column contains it.
+NOT vague when explicit:
+  "highest revenue", "most orders", "lowest price", "last 30 days",
+  "more than 5 orders", "over $2000", "before 2017"
 
-  get_columns(table)
-      → Confirm exact column names before referencing them.
-
-Call a tool ONLY when the query filters on a specific name/value whose exact
-spelling you are not certain of. Skip tools for pure aggregation queries.
+EXAMPLES:
+  "Show me recent orders"        → Ambiguous ('recent' has no timeframe)
+  "Find high-value customers"    → Ambiguous ('high-value' has no threshold)
+  "Show me orders from 2017"     → Clear (explicit year)
+  "Customers who spent > $5000"  → Clear (explicit threshold)
+  "List expensive products"      → Ambiguous (no price threshold given)
+  "Products over $2000"          → Clear (explicit threshold)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 REASONING PROCESS (Steps 2–10, only for Clear queries)

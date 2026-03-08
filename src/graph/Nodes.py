@@ -121,9 +121,9 @@ def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
     # First slot reuses existing SQL; remaining slots generate at varied temps.
     generation_plan = [(K_TEMPERATURES[0], initial_sql)] + [(t, None) for t in K_TEMPERATURES[1:]]
 
+    print(f"\nGenerating SQL Candidate(s)...")
     candidates = []
-    for i, (temp, prebuilt_sql) in enumerate(generation_plan):
-        print(f"\nGenerating SQL Candidate {i + 1}")
+    for _, (temp, prebuilt_sql) in enumerate(generation_plan):
         if prebuilt_sql is not None:
             # Sentinel from a failed generateSqlNode — skip rather than waste
             # MAX_EXEC_FIXES LLM calls trying to "fix" a SQL comment.
@@ -170,7 +170,6 @@ def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
 
     #take best candidate by score and return its SQL and details
     best = max(candidates, key=lambda c: c['score'])
-    print(f"\n✅ Final SQL: {best['sql']}")
 
     if not best['validation']['execution_ok']:
         issues_summary = '; '.join(best['validation'].get('issues', [])[:3]) or 'No viable candidate'
