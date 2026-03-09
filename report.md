@@ -43,7 +43,17 @@ ollama pull qwen3:32b  # SQL generation + validation
 ollama pull llama3.2:latest        # ReAct tool-use loop
 ```
 
-Ollama defaults to `http://localhost:11434`, see `.env.example`. To point the pipeline at a different host (e.g. Carleton's LLM server), set the `OLLAMA_HOST` environment variable before running
+**Carleton Server**:
+Ollama defaults to `http://localhost:11434`, see `.env.example`. To point the pipeline at a different host (e.g. Carleton's LLM server), set the `OLLAMA_HOST` environment variable before running.
+Also, set the following two models in an `.env` file:
+```
+# .env file
+
+OLLAMA_MODEL=qwen3:32b                 
+OLLAMA_REACT_MODEL=llama3.2:latest
+OLLAMA_HOST=<carleton_server_url>
+
+```
 
 ### 4. Run the interactive agent
 
