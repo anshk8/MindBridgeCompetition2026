@@ -36,15 +36,14 @@ pip install -r requirements.txt
 
 ### 3. Install and run Ollama (local inference)
 
-All models run **locally** via [Ollama](https://ollama.com). Pull the three models used by the pipeline:
 
+**Locally:**
 ```bash
-ollama pull qwen2.5-coder:14b   # SQL generation + validation
-ollama pull llama3.1:8b         # ReAct tool-use loop
+ollama pull qwen3:32b  # SQL generation + validation
+ollama pull llama3.2:latest        # ReAct tool-use loop
 ```
 
-Ollama defaults to `http://localhost:11434`, I ran everything locally. If you want to point the pipeline at a different host (e.g. Carleton's LLM server), set the `OLLAMA_HOST` environment variable before running
-
+Ollama defaults to `http://localhost:11434`, see `.env.example`. To point the pipeline at a different host (e.g. Carleton's LLM server), set the `OLLAMA_HOST` environment variable before running
 
 ### 4. Run the interactive agent
 
@@ -219,8 +218,8 @@ This system is built as a **multi-agent architecture** where each agent has a cl
 **Role:** Converts natural language questions into SQL queries.
 
 **Models:**
-- `qwen2.5-coder:14b` — SQL generation. Strong code reasoning and structured JSON output via schema enforcement.
-- `llama3.1:8b` — ReAct tool-use loop. Used separately because `qwen2.5-coder` has poor function-calling support; `llama3.1:8b` reliably decides when and how to invoke tools.
+- `qwen3:32b` — SQL generation. Strong code reasoning and structured JSON output via schema enforcement.
+- `llama3.2:latest` — ReAct tool-use loop. Used separately to keep the tool-use rounds lightweight and fast — llama3.2 handles tool decisions quickly without the overhead of a full 32b model call per ReAct round.
 - `all-MiniLM-L6-v2` — Sentence embedding for dynamic few-shot retrieval (via `sentence-transformers`).
 
 ### Techniques Used:
@@ -279,7 +278,7 @@ FEW_SHOT_EXAMPLES = [
 
 
 #### **ReAct Tool-Use Loop (Reasoning + Acting)**
-Model: **`llama3.1:8b`** — chosen for its native function-calling support, which makes tool usage reliable and deterministic.
+Model: **`llama3.2:latest`** — chosen for its native function-calling support, which makes tool usage reliable and deterministic.
 
 Instead of hoping the LLM remembers every column name and value correctly, the SQLAgent wraps its generation in a **ReAct loop** where the model can reason about the question, decide it needs to verify something, call a tool, get real data back and enrich its information before generating the SQL.
 
@@ -331,7 +330,7 @@ utils/prompts.py
 **Role:**  
 Ensures that generated SQL is both executable and semantically correct before returning to the user.
 
-**Model: `qwen2.5-coder:14b`** — same model as SQL generation, reused here for execution repair and semantic review since it already has strong code reasoning and schema familiarity from the generation phase.
+**Model: `qwen3:32b`** — same model as SQL generation, reused here for execution repair and semantic review since it already has strong code reasoning and schema familiarity from the generation phase.
 
 ### Techniques Used
 

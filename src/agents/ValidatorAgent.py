@@ -17,7 +17,7 @@ from src.utils.constants import MAX_EXEC_FIXES, MAX_SEMANTIC_FIXES
 class ValidatorAgent:
     def __init__(self, dbPath: str):
         self.dbPath = dbPath
-        self.model  = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
+        self.model  = os.getenv('OLLAMA_MODEL', 'qwen3:32b')
         self.ollamaClient = ollama.Client(
             host=os.getenv('OLLAMA_HOST', 'http://localhost:11434')
         )

@@ -23,9 +23,9 @@ from src.utils.fewShotExamples import FewShotExample, FEW_SHOT_EXAMPLES
 class SQLAgent:
     def __init__(self, dbPath: str = 'bike_store.db', schemaInfo: dict = None):
         # Model setup
-        self.model = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
-        # Separate model for the tool-probe phase — llama3.1:8b has better native tool-call support
-        self.toolLoopModel = os.getenv('OLLAMA_REACT_MODEL', 'llama3.1:8b')
+        self.model = os.getenv('OLLAMA_MODEL', 'qwen3:32b')
+        # Separate model for the tool-probe phase — llama3.2:latest has better native tool-call support
+        self.toolLoopModel = os.getenv('OLLAMA_REACT_MODEL', 'llama3.2:latest')
         self.ollamaClient = ollama.Client(host=os.getenv(
             'OLLAMA_HOST', 'http://localhost:11434'))
 
