@@ -19,12 +19,15 @@ from agent import QueryWriter
 from src.testing.queriesToTest import ALL_QUERIES
 from src.testing.queriesToTest import MIXED_QUERIES
 from src.testing.queriesToTest import TEST_MULTICONVERSATION_QUERIES
+from src.testing.queriesToTest import FINAL_TEST_BANK
 
 # ── Configure which categories to run ─────────────────────────────── #
 # CATEGORIES = ['easy', 'medium', 'hard', 'hard_advanced', 'ambiguous', 'nonsense']
-CATEGORIES = ['medium', 'hard', 'ambiguous', 'nonsense']
+CATEGORIES = ['medium','hard_advanced', 'ambiguous', 'nonsense']  # focus on more challenging categories for testing
 # CATEGORIES = ['clarification', 'irrelevant']  # focus on challenging categories for testing
 
+#For FINAL_TEST_BANK
+CATEGORIES = ['all']  
 
 def run(categories: list[str] = CATEGORIES) -> list[dict]:
     writer = QueryWriter()
@@ -33,7 +36,7 @@ def run(categories: list[str] = CATEGORIES) -> list[dict]:
     results = []
 
     for category in categories:
-        queries = ALL_QUERIES.get(category, [])
+        queries = FINAL_TEST_BANK.get(category, [])
         if not queries:
             continue
 

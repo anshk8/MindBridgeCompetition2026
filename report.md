@@ -38,7 +38,7 @@ pip install -r requirements.txt
 
 **Locally:**
 ```bash
-ollama pull qwen3-coder-next:q8_0  # SQL generation + validation
+ollama pull qwen3:8b  # SQL generation + validation
 ollama pull llama3.2:latest        # ReAct tool-use loop
 ```
 
@@ -50,7 +50,7 @@ Create a `.env` file in the project root (copy from `.env.example`) and fill in 
 # .env
 
 # Models
-OLLAMA_MODEL=qwen3-coder-next:q8_0
+OLLAMA_MODEL=qwen3:8b
 OLLAMA_REACT_MODEL=llama3.2:latest
 
 # Carleton LLM server
@@ -233,8 +233,8 @@ This system is built as a **multi-agent architecture** where each agent has a cl
 **Role:** Converts natural language questions into SQL queries.
 
 **Models:**
-- `qwen3-coder-next:q8_0` — SQL generation. A code-specialised Qwen3 variant offering strong SQL reasoning and reliable structured JSON output via schema enforcement.
-- `llama3.2:latest` — ReAct tool-use loop. Used separately to keep the tool-use rounds lightweight and fast — llama3.2 handles tool decisions quickly without the overhead of a full coder model call per ReAct round.
+- `qwen3:8b` — For SQL generation. A general Qwen3 variant which is great at reasoning. I selected this for its balance of speed and accuracy on SQL generation tasks at 8B parameters. I originally wanted to use `qwen3:32b`, but it was too slow and exceeded 5 minutes for a single generation. 
+- `llama3.2:latest` — ReAct tool-use loop. Used separately to keep the tool-use rounds lightweight and fast. llama3.2 handles tool decisions quickly without the overhead of a full coder model call per ReAct round.
 - `all-MiniLM-L6-v2` — Sentence embedding for dynamic few-shot retrieval (via `sentence-transformers`).
 
 ### Techniques Used:
@@ -345,7 +345,7 @@ utils/prompts.py
 **Role:**  
 Ensures that generated SQL is both executable and semantically correct before returning to the user.
 
-**Model: `qwen3-coder-next:q8_0`** — same model as SQL generation, reused here for execution repair and semantic review since it already has strong code reasoning and schema familiarity from the generation phase.
+**Model: `qwen3:8b`** — same model as SQL generation, reused here for execution repair and semantic review since it already has strong code reasoning and schema familiarity from the generation phase.
 
 ### Techniques Used
 

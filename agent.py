@@ -96,7 +96,7 @@ class QueryWriter:
                 if finalSql.startswith('-- UNANSWERABLE_QUERY'):
                     print(f"\n Query could not be answered")
                 return 'SELECT 1 WHERE 1=0'
-
+            
             return self._clean_sql(finalSql)
 
         except Exception as e:

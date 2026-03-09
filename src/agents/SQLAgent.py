@@ -85,7 +85,6 @@ class SQLAgent:
 
         print("Generating...")
         for _ in range(2):
-            # print("\n🤖 Tool Loop ", _)
             toolResponse = self.ollamaClient.chat(
                 model=self.toolLoopModel,
                 messages=ReActLoopMessages,
@@ -103,7 +102,6 @@ class SQLAgent:
                 func_name = tc['function']['name']
                 result_lines = executeTool(tc, db_path=self.dbPath, schema_info=self.schemaInfo)
                 result_text = '\n'.join(result_lines)
-                # print(f"\n🛠️ Tool called: {func_name}\nResult:\n{result_text}\n")
                 ReActLoopMessages.append({'role': 'tool', 'content': result_text})
                 toolObservations.append(f"[{func_name}] {result_text}")
 
@@ -124,7 +122,6 @@ class SQLAgent:
             {'role': 'user',   'content': userPrompt},
         ]
 
-        # print("\n Tool Loop done")
         # Structured SQL generation call format enforced, no tools.
         final_response = self.ollamaClient.chat(
             model=self.model,

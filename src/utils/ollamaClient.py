@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-OLLAMA_MODEL       = os.getenv('OLLAMA_MODEL',       'qwen3-coder-next:q8_0')
+OLLAMA_MODEL       = os.getenv('OLLAMA_MODEL',       'qwen3:8b')
 OLLAMA_REACT_MODEL = os.getenv('OLLAMA_REACT_MODEL', 'llama3.2:latest')
 
 _api_key = os.getenv('OLLAMA_API_KEY', '')
