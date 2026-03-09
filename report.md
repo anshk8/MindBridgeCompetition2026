@@ -415,7 +415,7 @@ After that, I pivoted to my more reliable setup one "MASTER" SQL agent that focu
 Hi! I’m Ansh Kakkar, a 3rd-year Computer Science student at Carleton University. I love building things, joining hackathons and learn by making personal projects in my free time.
 
 - Portfolio (RAG Chatbot): https://anshkakkar.dev
-- GitHub (Check out my projects): https://github.com/anshk8
+- GitHub (Check out my projects) (Fun Fact I'm on a 70+ day commit streak): https://github.com/anshk8
 - LinkedIn (Let's Connect): https://www.linkedin.com/in/ansh-kakkar
 
 ---
