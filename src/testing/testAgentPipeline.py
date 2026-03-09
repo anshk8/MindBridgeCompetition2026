@@ -23,7 +23,7 @@ from src.testing.queriesToTest import FINAL_TEST_BANK
 
 # ── Configure which categories to run ─────────────────────────────── #
 # CATEGORIES = ['easy', 'medium', 'hard', 'hard_advanced', 'ambiguous', 'nonsense']
-CATEGORIES = ['medium','hard_advanced', 'ambiguous', 'nonsense']  # focus on more challenging categories for testing
+# CATEGORIES = ['medium','hard_advanced', 'ambiguous', 'nonsense']  # focus on more challenging categories for testing
 # CATEGORIES = ['clarification', 'irrelevant']  # focus on challenging categories for testing
 
 #For FINAL_TEST_BANK
