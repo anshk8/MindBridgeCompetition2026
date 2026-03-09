@@ -11,7 +11,7 @@
 2. [Why My Solution Stands Out](#2-why-my-solution-stands-out)
 3. [Handling Ambiguous & Irrelevant Queries](#3-handling-ambiguous--irrelevant-queries)
 4. [Agent Design + Techniques](#4-agent-design--techniques)
-5. [Enabling MultiConversational Mode](#5-enabling-multiconversational-feature)
+5. [Enabling Multi Conversational Mode](#5-enabling-multi-conversational-feature)
 6. [Code Organization](#6-code-organization)
 7. [Challenges Faced](#7-challenges-faced)
 8. [About Me](#8-about-me)
@@ -66,7 +66,7 @@ OLLAMA_API_KEY=<rcs_carleton_API_key>
 python main.py
 ```
 
-> **Note:** By default, ambiguous queries return a short hint and the pipeline moves on — this is intentional so automated evaluation never hangs on `input()`. To enable the full interactive clarification loop for ambiguous queries (ask user → reframe → regenerate), see [Enabling MultiConversational Mode](#5-enabling-multiconversational-feature).
+> **Note:** By default, ambiguous queries return a short hint and the pipeline moves on — this is intentional so automated evaluation never hangs on `input()`. To enable the full interactive clarification loop for ambiguous queries (ask user → reframe → regenerate), see [Enabling Multi Conversational Mode](#5-enabling-multi-conversational-feature).
 
 ---
 
@@ -74,7 +74,7 @@ python main.py
 
 My submission uses a **two-stage agentic pipeline** orchestrated by LangGraph:
 
-- **SQLAgent (generateSqlNode)** — SQL Generation master.Classifies query intent (Clear / Ambiguous / Irrelevant), uses dynamic few-shot retrieval via semantic similarity to find the most relevant examples, uses step by step Chain-of-Thought reasoning and a ReAct loop using schema-probing tools to verify database information before producing the final SQL.
+- **SQLAgent (generateSqlNode)** — SQL Generation master. Classifies query intent (Clear / Ambiguous / Irrelevant), uses dynamic few-shot retrieval via semantic similarity to find the most relevant examples, uses step by step Chain-of-Thought reasoning and a ReAct loop using schema-probing tools to verify database information before producing the final SQL.
 
 - **K-Candidate Generation & Validation (kCandidatesNode)** — Generates multiple SQL candidates at varied temperatures (0.7, 0.3, 1.1) and returns the first one passing execution and semantic validation. ONLY THREE temperatures because we want generation time <= 5 minutes. Having more than 3 temperatures would exceed a reasonable time limit. 
 
@@ -110,7 +110,7 @@ My submission uses a **two-stage agentic pipeline** orchestrated by LangGraph:
           │                             │                                  │      │
           v                  ┌──────────┴───────────┐                      v      │
      Return                  │                      │                  kCandidatesNode
-   Blank / EXIT     multiConversational=OFF   multiConversational=ON   ┌──────────────────┐
+   Blank / EXIT    multi-Conversational=OFF  multi-Conversational=ON   ┌──────────────────┐
                              │                      │                  │ Temp 0.7 → Val?  │
                              v                      v                  │  Exit on pass    │
                         Return Hint        ┌─────────────────┐         │ Temp 0.3 → Val?  │
@@ -155,7 +155,7 @@ My submission uses a **two-stage agentic pipeline** orchestrated by LangGraph:
 
 - **Graceful Query Handling** — Handle all sorts of user queries, ambiguous and irrelevant queries are detected and handled without crashing the pipeline. (See [Handling Ambiguous & Irrelevant Queries](#3-handling-ambiguous--irrelevant-queries))
 
-- **Multi-Conversational Mode** — (OPTIONAL) Can be turned on and off to prevent interference with automated testing. Allows interactive clarification for ambiguous queries by pausing to ask the user for details, then reframing their answer into a clean unambiguous question. (See [Enabling Features](#5-enabling-features) for how to enable) 
+- **Multi-Conversational Mode** — (OPTIONAL) Can be turned on and off to prevent interference with automated testing. Allows interactive clarification for ambiguous queries by pausing to ask the user for details, then reframing their answer into a clean, unambiguous question (see [Enabling MultiConversational Mode](#5-enabling-multi-conversational-feature) ) for how to enable). 
 
 ---
 
@@ -164,7 +164,7 @@ My submission uses a **two-stage agentic pipeline** orchestrated by LangGraph:
 
 ## Ambiguous Query Handling
 
-If `multiConversational` is enabled (see [Enabling Features](#5-enabling-features)), the pipeline detects vague terms and pauses to ask the user a clarification question. The user's answer is fed back to an LLM which **rewrites the original question** into a clean, unambiguous form before re-running SQL generation. See the example below:
+If `Multi Conversational` is enabled (see [Enabling MultiConversational Mode](#5-enabling-multi-conversational-feature) ), the pipeline detects vague terms and pauses to ask the user a clarification question. The user's answer is fed back to an LLM which **rewrites the original question** into a clean, unambiguous form before re-running SQL generation. See the example below:
 
 ```
 Enter your question: Show me the best products
@@ -186,7 +186,7 @@ Generated SQL:
    ORDER BY total_revenue DESC
 ```
 
-When `multiConversational` is disabled (e.g. automated evaluation), the pipeline exits cleanly with a hint instead of blocking on `input()`:
+When `Multi-Conversational` is disabled (e.g. automated evaluation), the pipeline exits cleanly with a hint instead of blocking on `input()`:
 ```
 Enter your question: Show me the best products
 
@@ -233,7 +233,7 @@ This system is built as a **multi-agent architecture** where each agent has a cl
 **Role:** Converts natural language questions into SQL queries.
 
 **Models:**
-- `qwen3:8b` — For SQL generation. A general Qwen3 variant which is great at reasoning. I selected this for its balance of speed and accuracy on SQL generation tasks at 8B parameters. I originally wanted to use `qwen3:32b`, but it was too slow and exceeded 5 minutes for a single generation. 
+- `qwen3:8b` — For SQL generation. A general Qwen3 variant which is great at reasoning. I selected this for its balance of speed and accuracy on SQL generation tasks at 8B parameters. I originally wanted to use `qwen3:32b`, but it was too slow and exceeded 5 minutes for a single generation. qwen3:8b was accurate on my testing and SIGNIFICANTLY faster.
 - `llama3.2:latest` — ReAct tool-use loop. Used separately to keep the tool-use rounds lightweight and fast. llama3.2 handles tool decisions quickly without the overhead of a full coder model call per ReAct round.
 - `all-MiniLM-L6-v2` — Sentence embedding for dynamic few-shot retrieval (via `sentence-transformers`).
 
@@ -358,7 +358,7 @@ Ensures that generated SQL is both executable and semantically correct before re
 
 ---
 
-# 5. Enabling Multiconversational Feature
+# 5. Enabling Multi Conversational Feature
 
 ## Multi-Conversational Mode
 
