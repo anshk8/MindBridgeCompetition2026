@@ -6,6 +6,7 @@
 
 ## Table of Contents
 
+0. [How to Run](#0-how-to-run)
 1. [High Level Architecture Overview](#1-high-level-architecture-overview)
 2. [Why My Solution Stands Out](#2-why-my-solution-stands-out)
 3. [Handling Ambiguous & Irrelevant Queries](#3-handling-ambiguous--irrelevant-queries)
@@ -17,11 +18,49 @@
 
 ---
 
+# 0. How to Run
+
+### 1. Create and activate a virtual environment
+
+```bash
+python -m venv venv
+source venv/bin/activate        # macOS / Linux
+# venv\Scripts\activate         # Windows
+```
+
+### 2. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Install and run Ollama (local inference)
+
+All models run **locally** via [Ollama](https://ollama.com). Pull the three models used by the pipeline:
+
+```bash
+ollama pull qwen2.5-coder:14b   # SQL generation + validation
+ollama pull llama3.1:8b         # ReAct tool-use loop
+```
+
+Ollama defaults to `http://localhost:11434`, I ran everything locally. If you want to point the pipeline at a different host (e.g. Carleton's LLM server), set the `OLLAMA_HOST` environment variable before running
+
+
+### 4. Run the interactive agent
+
+```bash
+python main.py
+```
+
+> **Note:** By default, ambiguous queries return a short hint and the pipeline moves on — this is intentional so automated evaluation never hangs on `input()`. To enable the full interactive clarification loop for ambiguous queries (ask user → reframe → regenerate), see [Enabling MultiConversational Mode](#5-enabling-multiconversational-feature).
+
+---
+
 # 1. High Level Architecture Overview
 
 My submission uses a **two-stage agentic pipeline** orchestrated by LangGraph:
 
-- **SQLAgent (generateSqlNode)** — Uses ReAct loops and tool-use to reason about table relationships, verify column names/values, classify intent (Clear / Ambiguous / Irrelevant) and generate SQL. 
+- **SQLAgent (generateSqlNode)** — SQL Generation master.Classifies query intent (Clear / Ambiguous / Irrelevant), uses dynamic few-shot retrieval via semantic similarity to find the most relevant examples, uses step by step Chain-of-Thought reasoning and a ReAct loop using schema-probing tools to verify database information before producing the final SQL.
 
 - **K-Candidate Generation & Validation (kCandidatesNode)** — Generates multiple SQL candidates at varied temperatures (0.7, 0.3, 1.0, 0.5, ...) and returns the first one passing execution and semantic validation.
 
@@ -30,7 +69,7 @@ My submission uses a **two-stage agentic pipeline** orchestrated by LangGraph:
 ## Full Workflow
 
 ```
-                                   ┌─────────────────────-┐
+                                   ┌──────────────────────┐
                                    │   User Question      │
                                    └──────────┬───────────┘
                                               │

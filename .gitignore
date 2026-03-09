@@ -2,9 +2,6 @@
 .env
 *.env.local
 
-# Generated PDF (keep separate from repo)
-COMPETITION_GUIDE.pdf
-
 # Database files (generated)
 *.db
 *.duckdb
@@ -53,5 +50,3 @@ kaggle.json
 # OS files
 .DS_Store
 Thumbs.db
-
-mindGrasp

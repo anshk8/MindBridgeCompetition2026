@@ -122,8 +122,8 @@ def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
     candidates = []
     for temp, prebuilt_sql in generation_plan:
         if prebuilt_sql is not None:
-            # The Irrelevant, Amgiguous Queries start with --- ONLY, we skip these
-            if prebuilt_sql.startswith('--'):
+            # Skip empty SQL or comment-only placeholders (Irrelevant/Ambiguous markers)
+            if not prebuilt_sql.strip() or prebuilt_sql.strip().startswith('--'):
                 continue
             sql = prebuilt_sql
         else:
