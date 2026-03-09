@@ -143,11 +143,39 @@ FEW_SHOT_EXAMPLES = [
         explanation="Store revenue must go through orders not stocks. stocks is inventory only. Correct path: stores -> orders -> order_items"
     ),
 
+    # --- Products Sold = SUM(order_items.quantity), NOT COUNT(orders) ---
+    FewShotExample(
+        question="Give me the top 3 staff who have sold the most products",
+        sql="""SELECT s.first_name, s.last_name, SUM(oi.quantity) AS total_products_sold
+            FROM staffs s
+            JOIN orders o ON s.staff_id = o.staff_id
+            JOIN order_items oi ON o.order_id = oi.order_id
+            GROUP BY s.staff_id, s.first_name, s.last_name
+            ORDER BY total_products_sold DESC
+            LIMIT 3""",
+        explanation=(
+            "'Products sold' means SUM(oi.quantity) from order_items — NOT COUNT(o.order_id). "
+            "COUNT(order_id) measures orders handled, not units sold. "
+            "Always join staffs → orders → order_items and use SUM(quantity) "
+            "when the question asks about products sold, units sold, or items sold."
+        )
+    ),
+
     # --- Top-per-group pattern ---
     FewShotExample(
         question="For each store, show the most expensive product in stock",
-        sql="SELECT s.store_name, p.product_name, p.list_price FROM stores s JOIN stocks st ON s.store_id = st.store_id JOIN products p ON st.product_id = p.product_id WHERE (s.store_id, p.list_price) IN (SELECT st2.store_id, MAX(p2.list_price) FROM stocks st2 JOIN products p2 ON st2.product_id = p2.product_id GROUP BY st2.store_id)",
-        explanation="Top-1 per group pattern: use a subquery to find the MAX per group, then filter the outer query using (group_key, max_value) IN (...). Never use GROUP BY on product_name for per-store max — that returns all products, not one per store."
+        sql="SELECT s.store_name, p.product_name, p.list_price FROM stores s JOIN stocks st ON s.store_id = st.store_id JOIN products p ON st.product_id = p.product_id JOIN (SELECT st2.store_id, MAX(p2.list_price) AS max_price FROM stocks st2 JOIN products p2 ON st2.product_id = p2.product_id GROUP BY st2.store_id) mx ON s.store_id = mx.store_id AND p.list_price = mx.max_price",
+        explanation="Top-1 per group pattern: use a subquery to find the MAX price per store, then JOIN it back on store_id and price. Never GROUP BY product_name for per-store max — that returns all products, not one per store."
+    ),
+    FewShotExample(
+        question="What is the most expensive product in each brand?",
+        sql="SELECT b.brand_name, p.product_name, p.list_price FROM products p JOIN brands b ON p.brand_id = b.brand_id JOIN (SELECT brand_id, MAX(list_price) AS max_price FROM products GROUP BY brand_id) mx ON p.brand_id = mx.brand_id AND p.list_price = mx.max_price ORDER BY p.list_price DESC",
+        explanation="Top-1 per group: subquery finds MAX price per brand_id, then you JOIN it back on brand_id and price to keep only the top-priced products. NEVER use GROUP BY (brand_name, product_name) with MAX() — that groups every product separately and returns all products, not one per brand."
+    ),
+    FewShotExample(
+        question="Show the cheapest product in each category",
+        sql="SELECT c.category_name, p.product_name, p.list_price FROM products p JOIN categories c ON p.category_id = c.category_id JOIN (SELECT category_id, MIN(list_price) AS min_price FROM products GROUP BY category_id) mn ON p.category_id = mn.category_id AND p.list_price = mn.min_price ORDER BY p.list_price ASC",
+        explanation="Top-1 per group (MIN variant): use a subquery to compute MIN(list_price) per category, then JOIN on category_id and price. Never GROUP BY both category and product_name — that returns all products."
     ),
 
     # --- Self-join / Hierarchy ---
@@ -156,4 +184,36 @@ FEW_SHOT_EXAMPLES = [
         sql="SELECT m.first_name, m.last_name, COUNT(s.staff_id) AS direct_reports FROM staffs m JOIN staffs s ON m.staff_id = CAST(s.manager_id AS BIGINT) GROUP BY m.staff_id, m.first_name, m.last_name ORDER BY direct_reports DESC",
         explanation="Self-join pattern for hierarchy: alias the same table twice (m=managers, s=subordinates) and join ON m.staff_id = s.manager_id. Never use WHERE manager_id IS NOT NULL with GROUP BY — that counts how many managers each staff member has, not how many reports each manager has."
     ),
+
+    FewShotExample(
+        question="List all products from the Trek brand",
+        sql="SELECT p.product_name, p.list_price FROM products p JOIN brands b ON p.brand_id = b.brand_id WHERE b.brand_name = 'Trek' ORDER BY p.list_price DESC",
+        explanation="Filter by a named entity in a related table using JOIN + WHERE. Select only human-readable columns (product_name, list_price) — never include raw ID columns like product_id or brand_id in the output."
+    ),
+    FewShotExample(
+        question="Show all products in the Mountain Bikes category",
+        sql="SELECT p.product_name, p.list_price FROM products p JOIN categories c ON p.category_id = c.category_id WHERE c.category_name = 'Mountain Bikes' ORDER BY p.list_price DESC",
+        explanation="Filter by category name via JOIN. Only return product_name and list_price — never include internal IDs like product_id or category_id in results."
+    ),
+    FewShotExample(
+        question="Find customers who have spent more than $5000 total",
+        sql="SELECT c.first_name, c.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name HAVING total_spent > 5000 ORDER BY total_spent DESC",
+        explanation="Threshold filter on derived aggregate: compute total_spent per customer via JOIN chain, then apply HAVING with explicit dollar threshold. Never SELECT raw customer_id — use first_name, last_name only."
+    ),
+    FewShotExample(
+        question="Show customers who have placed more than 5 orders",
+        sql="SELECT c.first_name, c.last_name, COUNT(o.order_id) AS order_count FROM customers c JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id, c.first_name, c.last_name HAVING COUNT(o.order_id) > 5 ORDER BY order_count DESC",
+        explanation="Frequency filter: GROUP BY customer, HAVING COUNT > N. Use explicit N from user — never invent a default threshold."
+    ),
+    FewShotExample(
+        question="Show each store's total revenue as a percentage of overall revenue",
+        sql="WITH store_rev AS (SELECT s.store_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS store_total FROM stores s JOIN orders o ON s.store_id = o.store_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY s.store_name), total_rev AS (SELECT SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS grand_total FROM order_items oi) SELECT sr.store_name, ROUND((sr.store_total / tr.grand_total) * 100, 2) AS revenue_pct FROM store_rev sr, total_rev tr ORDER BY revenue_pct DESC",
+        explanation="'Each store' means ALL rows — never add LIMIT. Only use LIMIT when the question asks for 'top N', 'best N', or a specific count. CTE pattern: one CTE for group subtotals, one for grand total, cross join."
+    ),
+    FewShotExample(
+        question="Find customers who spent more than the average customer spending",
+        sql="WITH customer_spending AS (SELECT c.customer_id, c.first_name, c.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name) SELECT first_name, last_name, total_spent FROM customer_spending WHERE total_spent > (SELECT AVG(total_spent) FROM customer_spending) ORDER BY total_spent DESC",
+        explanation="Above-average pattern: CTE computes per-customer totals, then a scalar subquery on the same CTE gets AVG. Cleaner than nested subqueries. Always include total_spent in SELECT so results are meaningful."
+    ),
+
 ]

@@ -6,86 +6,123 @@
 
 ## Table of Contents
 
-1. [HIGH Level Architecture Overview](#1-high-level-architecture-overview)
+0. [How to Run](#0-how-to-run)
+1. [High Level Architecture Overview](#1-high-level-architecture-overview)
 2. [Why My Solution Stands Out](#2-why-my-solution-stands-out)
 3. [Handling Ambiguous & Irrelevant Queries](#3-handling-ambiguous--irrelevant-queries)
 4. [Agent Design + Techniques](#4-agent-design--techniques)
-5. [Enabling Features](#5-enabling-features)
+5. [Enabling MultiConversational Mode](#5-enabling-multiconversational-feature)
 6. [Code Organization](#6-code-organization)
 7. [Challenges Faced](#7-challenges-faced)
 8. [About Me](#8-about-me)
 
 ---
 
-# 1. HIGH Level Architecture Overview
+# 0. How to Run
+
+### 1. Create and activate a virtual environment
+
+```bash
+python -m venv venv
+source venv/bin/activate        # macOS / Linux
+# venv\Scripts\activate         # Windows
+```
+
+### 2. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Install and run Ollama (local inference)
+
+All models run **locally** via [Ollama](https://ollama.com). Pull the three models used by the pipeline:
+
+```bash
+ollama pull qwen2.5-coder:14b   # SQL generation + validation
+ollama pull llama3.1:8b         # ReAct tool-use loop
+```
+
+Ollama defaults to `http://localhost:11434`, I ran everything locally. If you want to point the pipeline at a different host (e.g. Carleton's LLM server), set the `OLLAMA_HOST` environment variable before running
+
+
+### 4. Run the interactive agent
+
+```bash
+python main.py
+```
+
+> **Note:** By default, ambiguous queries return a short hint and the pipeline moves on — this is intentional so automated evaluation never hangs on `input()`. To enable the full interactive clarification loop for ambiguous queries (ask user → reframe → regenerate), see [Enabling MultiConversational Mode](#5-enabling-multiconversational-feature).
+
+---
+
+# 1. High Level Architecture Overview
 
 My submission uses a **two-stage agentic pipeline** orchestrated by LangGraph:
 
-- **SQLAgent (generateSqlNode)** — Uses ReAct loops and tool-use to reason about table relationships, verify column names/values, classify intent (Clear / Ambiguous / Irrelevant) and generate SQL. 
+- **SQLAgent (generateSqlNode)** — SQL Generation master.Classifies query intent (Clear / Ambiguous / Irrelevant), uses dynamic few-shot retrieval via semantic similarity to find the most relevant examples, uses step by step Chain-of-Thought reasoning and a ReAct loop using schema-probing tools to verify database information before producing the final SQL.
 
-- **K-Candidate Generation & Validation (kCandidatesNode)** — Generates multiple SQL candidates at varied temperatures (0.7, 0.3, 1.0, 0.5, ...) and returns the first one passing execution and semantic validation.
+- **K-Candidate Generation & Validation (kCandidatesNode)** — Generates multiple SQL candidates at varied temperatures (0.7, 0.3, 1.1) and returns the first one passing execution and semantic validation. ONLY THREE temperatures because we want generation time <= 5 minutes. Having more than 3 temperatures would exceed a reasonable time limit. 
 
 - **ValidatorAgent** — Ensures the final SQL is executable and semantically correct by executing, repairing failures (≤2 rounds), and validating results match user intent.
 
 ## Full Workflow
 
 ```
-                              ┌─────────────────────┐
-                              │   User Question     │
-                              └──────────┬──────────┘
-                                         │
-                                         v
-                    ┌────────────────────────────────────────────┐
-                    │     generateSqlNode: SQLAgent              │
-                    │     (ReAct Tool-Use Loop)                  │
-                    │                                            │
-                    │  ┌──────────────────────────────────────┐  │
-                    │  │ Tool-use loop (max 2 rounds):        │  │
-                    │  │  • search_value(term)                │  │
-                    │  │  • get_distinct_values(col)          │  │
-                    │  │  • get_columns(table)                │  │
-                    │  └──────────────────────────────────────┘  │
-                    │                                            │
-                    │  Output: SQL + Intent Classification       │
-                    │  Intents: Clear / Ambiguous / Irrelevant   │
-                    └──────────────┬─────────────────────────────┘
-                                   │
-            ┌──────────────┬───────┼─────────────┬──────────────┐
-            │              │       │             │              │
-        Irrelevant     Ambiguous  Ambiguous    Clear         (fallback)
-        (invalid)    (mc=False)   (mc=True)   Intent
-            │              │       │             │
-            v              v       v             v
-         Return        Return  Ask User    kCandidatesNode
-          NULL      Hint Comment  for      (Multi-temp loop)
-         Query                 Input    ┌─────────────────┐
-                                        │ Temp 0.7 → Val? │
-                                  ┌─────┤  Exit on pass   │
-                                  │     │ Temp 0.3 → Val? │
-                                  │     │ Temp 1.0 → Val? │
-                                  │     │ ...retry...     │
-                                  │     └─────────────────┘
-                                  │              │
-                                  │              v
-                                  │     ┌──────────────────────┐
-                                  │     │  ValidatorAgent      │
-                                  │     │  ┌────────────────┐  │
-                                  │     │  │ Execute SQL    │  │
-                                  │     │  │ Repair (≤2x)   │  │
-                                  │     │  │ Semantic check │  │
-                                  │     │  │ Fix output     │  │
-                                  │     │  └────────────────┘  │
-                                  │     └──────────┬───────────┘
-                                  │                │
-                                  │            Pass?
-                                  │                │
-                                  │          ┌─────┴─────┐
-                                  │          │           │
-                                  │         Yes         No
-                                  │          │           │
-                                  │          v           v
-                                  └──────►Return    Retry or
-                                          Final SQL  Fail
+                                   ┌──────────────────────┐
+                                   │   User Question      │
+                                   └──────────┬───────────┘
+                                              │
+                                              v
+                    ┌──────────────────────────────────────────────┐
+                    │         generateSqlNode: SQLAgent            │◄─────────────┐
+                    │         (ReAct Tool-Use Loop)                │              │
+                    │                                              │              │
+                    │  ┌────────────────────────────────────────┐  │              │
+                    │  │  Tool-use loop (max 2 rounds):         │  │              │
+                    │  │   • search_value(term)                 │  │              │
+                    │  │   • get_distinct_values(table, col)    │  │              │
+                    │  │   • get_columns(table)                 │  │              │
+                    │  └────────────────────────────────────────┘  │              │
+                    │                                              │              │
+                    │  Output: SQL + Intent Classification         │              │
+                    │  Intents: Clear / Ambiguous / Irrelevant     │              │
+                    └───────────────────┬──────────────────────────┘              │
+                                        │                                         │
+          ┌─────────────────────────────┼──────────────────────────────────┐      │
+          │                             │                                  │      │
+          v                             v                                  v      │
+     Irrelevant                    Ambiguous                             Clear    │
+          │                             │                                  │      │
+          v                  ┌──────────┴───────────┐                      v      │
+     Return                  │                      │                  kCandidatesNode
+   Blank / EXIT     multiConversational=OFF   multiConversational=ON   ┌──────────────────┐
+                             │                      │                  │ Temp 0.7 → Val?  │
+                             v                      v                  │  Exit on pass    │
+                        Return Hint        ┌─────────────────┐         │ Temp 0.3 → Val?  │
+                     Comment / Exit        │clarificationNode│         │ Temp 1.1 → Val?  │
+                                           │  Ask User for   │         │  ...retry...     │
+                                           │  Input, Reframe │         └────────┬─────────┘
+                                           │  Question       │                  │
+                                           └────────┬────────┘                  v
+                                                    │              ┌───────────────────────┐
+                                                    │              │    ValidatorAgent     │
+                                                    │              │  ┌─────────────────┐  │
+                                                    └──────────────►  │  Execute SQL    │  │
+                                              (re-runs SQLAgent)   │  │  Repair (≤2x)   │  │
+                                                                   │  │  Semantic check │  │
+                                                                   │  │  Fix output     │  │
+                                                                   │  └─────────────────┘  │
+                                                                   └──────────┬────────────┘
+                                                                              │
+                                                                           Pass?
+                                                                        ┌─────┴──────┐
+                                                                        │            │
+                                                                       Yes           No
+                                                                        │            │
+                                                                        v            v
+                                                                    Return       Retry or
+                                                                    Final SQL      Fail
 ```
 
 ---
@@ -147,18 +184,26 @@ Enter your question:
 
 ## Irrelevant Query Detection
 
-Queries that have no connection to a bike store database are identified and skipped before any SQL is generated or validated. Since queries will be executed, we return `SELECT NULL WHERE 1=0` preventing crashes in testing from returning blank results and print out a proper statement. See example:
+Queries that have no connection to a bike store database are identified and skipped before any SQL is generated or validated.
 
 ```
 Enter your question: Why am I feeling sick in the store?
 
-🎯 Intent: Irrelevant
-❌ Query has no relevance to the bike store database.
+  Query has no relevance to the bike store database.
 
-Generated SQL: SELECT NULL WHERE 1=0
--- IRRELEVANT_QUERY: This question cannot be answered
-                     from the bike store database.
+Enter your question: 
+
 ```
+
+## Safe Fallback for All Edge Cases
+
+For every edge case such as ambiguous (when `multiConversational` is off), irrelevant, or unanswerablem, `generate_query` in `agent.py` intercepts any `-- AMBIGUOUS_QUERY`, `-- IRRELEVANT_QUERY`, or `-- UNANSWERABLE_QUERY` marker and replaces it with:
+
+```sql
+SELECT 1 WHERE 1=0
+```
+
+This guarantees that all questions always receive a valid, executable SQL statement that returns zero rows for no execution errors, no crashes, and no output that can be misinterpreted.
 
 ---
 
@@ -173,6 +218,11 @@ This system is built as a **multi-agent architecture** where each agent has a cl
 
 **Role:** Converts natural language questions into SQL queries.
 
+**Models:**
+- `qwen2.5-coder:14b` — SQL generation. Strong code reasoning and structured JSON output via schema enforcement.
+- `llama3.1:8b` — ReAct tool-use loop. Used separately because `qwen2.5-coder` has poor function-calling support; `llama3.1:8b` reliably decides when and how to invoke tools.
+- `all-MiniLM-L6-v2` — Sentence embedding for dynamic few-shot retrieval (via `sentence-transformers`).
+
 ### Techniques Used:
 
 #### **Chain-of-Thought (CoT) Prompting**  
@@ -184,22 +234,25 @@ utils/prompts.py
 
          ...
    
-         REASONING PROCESS:
-         You must think through each query step-by-step using Chain-of-Thought reasoning:
+        REASONING PROCESS:
+        You must think through each query step-by-step using Chain-of-Thought reasoning:
          
-         Step 1: What tables are needed?
-         Step 2: What columns should be selected?
-         Step 3: Are any JOINs needed? If yes, what are the JOIN conditions?
-         Step 4: Are any WHERE filters needed? If yes, what conditions?
-         Step 5: Are any aggregations needed (COUNT, SUM, AVG, etc.)?
-         Step 6: Is GROUP BY needed? If yes, which columns?
-         Step 7: Is sorting needed (ORDER BY)? If yes, which columns and direction?
-         Step 8: Is a LIMIT needed?
+        Step 2: What tables are needed?
+        Step 3: What columns should be selected?
+        Step 4: Are any JOINs needed?
+        Step 5: Are any WHERE filters needed?
+        Step 6: Are any aggregations needed (COUNT, SUM, AVG, etc.)?
+        Step 7: Is GROUP BY needed?
+        Step 8: Is ORDER BY needed?
+        Step 9: Is a LIMIT needed?
       
 ```
+**NOTE: Step 1 is a part of the intent clarification written above these steps**, see `src/utils/prompts.py`
 
 #### **Dynamic Few-Shot Learning**
-  Injects relevant example queries per question to assist LLM. Uses embedding similarity to select the top 3 most relevant examples from a curated bank of 23 patterns covering basic aggregations, multi-table JOINs, self-joins, subqueries, CTEs, window functions, top-per-group problems, and common pitfalls with explicit counter-examples.
+  Embedding model: **`all-MiniLM-L6-v2`** (via `sentence-transformers`) — lightweight, fast, and accurate enough for semantic query matching.
+
+  Injects relevant example queries per question to assist LLM. Uses cosine similarity over sentence embeddings to select the top 5 most relevant examples from a curated bank of 20+ patterns covering basic aggregations, multi-table JOINs, self-joins, subqueries, CTEs, window functions, top-per-group problems, and common pitfalls with explicit counter-examples.
 ```
 src/utils/fewShotExamples.py
 
@@ -226,6 +279,8 @@ FEW_SHOT_EXAMPLES = [
 
 
 #### **ReAct Tool-Use Loop (Reasoning + Acting)**
+Model: **`llama3.1:8b`** — chosen for its native function-calling support, which makes tool usage reliable and deterministic.
+
 Instead of hoping the LLM remembers every column name and value correctly, the SQLAgent wraps its generation in a **ReAct loop** where the model can reason about the question, decide it needs to verify something, call a tool, get real data back and enrich its information before generating the SQL.
 
 The loop runs up to 2 tool rounds before requiring a final answer. If the LLM decides it doesn't need any tools, it skips straight to SQL generation, so we can reduce overhead for simple queries.
@@ -247,14 +302,7 @@ ReAct Round 0:
   Result:     brands.brand_name: ['Electra']
               products.product_name: ['Electra Townie Original 21D - 2016', ...]
 
-ReAct Round 1:
-  LLM thinks: "Electra is a brand. I need to join brands → products → order_items → orders."
-  Final answer: SELECT o.order_id, o.order_date, ...
-                FROM brands b
-                JOIN products p ON b.brand_id = p.brand_id
-                JOIN order_items oi ON p.product_id = oi.product_id
-                JOIN orders o ON oi.order_id = o.order_id
-                WHERE b.brand_name = 'Electra'
+# ... Now the call for SQL Generation after ReAct loop has more context!
 ```
 
 If all tool rounds complete without the model calling a tool, the agent proceeds directly to the final structured call with a strict Pydantic schema constraint (`format=SQLResult.model_json_schema()`) — so it never crashes.
@@ -281,7 +329,9 @@ utils/prompts.py
 ## 2. ValidatorAgent (Verifier + Fixer)
 
 **Role:**  
-Ensures that generated SQL is both executable and semantically correct before returning to the user. 
+Ensures that generated SQL is both executable and semantically correct before returning to the user.
+
+**Model: `qwen2.5-coder:14b`** — same model as SQL generation, reused here for execution repair and semantic review since it already has strong code reasoning and schema familiarity from the generation phase.
 
 ### Techniques Used
 
@@ -294,11 +344,11 @@ Ensures that generated SQL is both executable and semantically correct before re
 
 ---
 
-# 5. Enabling Features
+# 5. Enabling Multiconversational Feature
 
 ## Multi-Conversational Mode
 
-By default, ambiguous queries return a hint comment (`-- AMBIGUOUS_QUERY: ...`) so the pipeline never blocks on `input()` during automated evaluations. To enable the interactive clarification loop, set the flag in `agent.py`:
+By default, ambiguous queries return a hint comment (`❓ Query was ambiguous — try being more specific.`) so the pipeline never blocks on `input()` during automated evaluations. To enable the interactive clarification loop, set the flag in `agent.py`:
 
 ```python
 # agent.py — QueryWriter.__init__
@@ -332,7 +382,11 @@ carleton_competition_winter_2026/
     ├── graph/
     │   ├── GraphWorkflow.py        # LangGraph workflow definition & conditional edges
     │   ├── Nodes.py                # Node functions (generateSqlNode, kCandidatesNode, ...)
-    │   └── State.py                # Typed shared state schema
+    │   ├── State.py                # Typed shared state schema
+    |   |
+    │   └── visualization/
+    │       ├── visualize_graph.py  # Not submission relevant — visualize graph for fun
+    │       └── graph.png           # Generated LangGraph workflow visualization
     │
     ├── schemas/                    # Pydantic output schemas for SQLAgent + ValidatorAgent
     │
@@ -342,7 +396,7 @@ carleton_competition_winter_2026/
     │   ├── fewShotExamples.py      # Bank of few-shot examples for SQLAgent
     │   └── constants.py            # Constants
     │
-    └── testing/                    # Test suite and saved test results
+    └── testing/                    # I used an automated script to help improve my submission
 ```
 
 

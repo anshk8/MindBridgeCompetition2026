@@ -1,0 +1,342 @@
+[
+  {
+    "id": "CL1",
+    "category": "clarification",
+    "question": "Show me recent orders",
+    "expected_sql": null,
+    "generated_sql": "-- AMBIGUOUS_QUERY: Could you please specify the time period for 'recent' orders? For example, orders from the last 30 days, last month, etc.",
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: Could you please specify the time period for 'recent' orders? For example, orders from the last 30 days, last month, etc.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "CL2",
+    "category": "clarification",
+    "question": "Find high-value customers",
+    "expected_sql": null,
+    "generated_sql": "-- AMBIGUOUS_QUERY: What metric or threshold should be used to determine high-value customers? (e.g., total spending over a certain amount, number of orders, etc.)",
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: What metric or threshold should be used to determine high-value customers? (e.g., total spending over a certain amount, number of orders, etc.)",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "CL3",
+    "category": "clarification",
+    "question": "Which products have good discounts?",
+    "expected_sql": null,
+    "generated_sql": "-- AMBIGUOUS_QUERY: What percentage or monetary value should be considered a 'good' discount for products?",
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: What percentage or monetary value should be considered a 'good' discount for products?",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "CL4",
+    "category": "clarification",
+    "question": "Which store needs restocking the most?",
+    "expected_sql": null,
+    "generated_sql": "SELECT s.store_name, SUM(oi.quantity) AS total_sold, SUM(st.quantity) AS total_in_stock, SUM(st.quantity) - SUM(oi.quantity) AS restock_needed FROM stores s JOIN orders o ON s.store_id = o.store_id JOIN order_items oi ON o.order_id = oi.order_id JOIN stocks st ON s.store_id = st.store_id AND oi.product_id = st.product_id GROUP BY s.store_id, s.store_name ORDER BY restock_needed DESC LIMIT 1",
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT s.store_name, SUM(oi.quantity) AS total_sold, SUM(st.quantity) AS total_in_stock, SUM(st.quantity) - SUM(oi.quantity) AS restock_needed FROM stores s JOIN orders o ON s.store_id = o.store_id JOIN order_items oi ON o.order_id = oi.order_id JOIN stocks st ON s.store_id = st.store_id AND oi.product_id = st.product_id GROUP BY s.store_id, s.store_name ORDER BY restock_needed DESC LIMIT 1",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 1,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "CL5",
+    "category": "clarification",
+    "question": "Show me customers who buy frequently",
+    "expected_sql": null,
+    "generated_sql": "-- AMBIGUOUS_QUERY: What is the threshold for a customer to be considered 'frequent'? For example, how many orders must a customer have placed to be considered frequent, or within what time period?",
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: What is the threshold for a customer to be considered 'frequent'? For example, how many orders must a customer have placed to be considered frequent, or within what time period?",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "CL6",
+    "category": "clarification",
+    "question": "Which staff are underperforming?",
+    "expected_sql": null,
+    "generated_sql": "-- AMBIGUOUS_QUERY: What metric or threshold defines 'underperforming' staff members?",
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: What metric or threshold defines 'underperforming' staff members?",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "CL7",
+    "category": "clarification",
+    "question": "List expensive products",
+    "expected_sql": null,
+    "generated_sql": "-- AMBIGUOUS_QUERY: Could you please provide a price threshold to determine what constitutes an expensive product?",
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: Could you please provide a price threshold to determine what constitutes an expensive product?",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "CL8",
+    "category": "clarification",
+    "question": "Show me sales data for the Baldwin store",
+    "expected_sql": null,
+    "generated_sql": "SELECT s.store_name, o.order_date, oi.product_id, oi.quantity, oi.list_price, oi.discount FROM stores s JOIN orders o ON s.store_id = o.store_id JOIN order_items oi ON o.order_id = oi.order_id WHERE s.store_name = 'Baldwin Bikes' ORDER BY o.order_date DESC",
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT s.store_name, o.order_date, oi.product_id, oi.quantity, oi.list_price, oi.discount FROM stores s JOIN orders o ON s.store_id = o.store_id JOIN order_items oi ON o.order_id = oi.order_id WHERE s.store_name = 'Baldwin Bikes' ORDER BY o.order_date DESC",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 3195,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "CL9",
+    "category": "clarification",
+    "question": "Find slow-moving products",
+    "expected_sql": null,
+    "generated_sql": "-- AMBIGUOUS_QUERY: What threshold defines a product as 'slow-moving'? Please provide a specific number of units sold or a time period to consider.",
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: What threshold defines a product as 'slow-moving'? Please provide a specific number of units sold or a time period to consider.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "CL10",
+    "category": "clarification",
+    "question": "Which brands are doing well?",
+    "expected_sql": null,
+    "generated_sql": "-- AMBIGUOUS_QUERY: What metric should be used to determine which brands are doing well? (e.g., total revenue, number of orders, average order value)",
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: What metric should be used to determine which brands are doing well? (e.g., total revenue, number of orders, average order value)",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "DUMB1",
+    "category": "irrelevant",
+    "question": "What is the capital of France?",
+    "expected_sql": "-- IRRELEVANT_QUERY",
+    "generated_sql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+    "graph_state": {
+      "queryIntent": "Irrelevant",
+      "finalSql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "DUMB2",
+    "category": "irrelevant",
+    "question": "Write me a poem about bicycles",
+    "expected_sql": "-- IRRELEVANT_QUERY",
+    "generated_sql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+    "graph_state": {
+      "queryIntent": "Irrelevant",
+      "finalSql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "DUMB3",
+    "category": "irrelevant",
+    "question": "What is 2 + 2?",
+    "expected_sql": "-- IRRELEVANT_QUERY",
+    "generated_sql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+    "graph_state": {
+      "queryIntent": "Irrelevant",
+      "finalSql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "DUMB4",
+    "category": "irrelevant",
+    "question": "How do I fix a flat tire on my bike?",
+    "expected_sql": "-- IRRELEVANT_QUERY",
+    "generated_sql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+    "graph_state": {
+      "queryIntent": "Irrelevant",
+      "finalSql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "DUMB5",
+    "category": "irrelevant",
+    "question": "Tell me a joke",
+    "expected_sql": "-- IRRELEVANT_QUERY",
+    "generated_sql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+    "graph_state": {
+      "queryIntent": "Irrelevant",
+      "finalSql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "DUMB6",
+    "category": "irrelevant",
+    "question": "What is the current stock price of Trek Inc?",
+    "expected_sql": "-- IRRELEVANT_QUERY",
+    "generated_sql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+    "graph_state": {
+      "queryIntent": "Irrelevant",
+      "finalSql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "DUMB7",
+    "category": "irrelevant",
+    "question": "Can you translate 'bicycle' into French?",
+    "expected_sql": "-- IRRELEVANT_QUERY",
+    "generated_sql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+    "graph_state": {
+      "queryIntent": "Irrelevant",
+      "finalSql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "DUMB8",
+    "category": "irrelevant",
+    "question": "What movies are playing tonight?",
+    "expected_sql": "-- IRRELEVANT_QUERY",
+    "generated_sql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+    "graph_state": {
+      "queryIntent": "Irrelevant",
+      "finalSql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "DUMB9",
+    "category": "irrelevant",
+    "question": "Who is the CEO of Trek Bicycle Corporation?",
+    "expected_sql": "-- IRRELEVANT_QUERY",
+    "generated_sql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+    "graph_state": {
+      "queryIntent": "Irrelevant",
+      "finalSql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "DUMB10",
+    "category": "irrelevant",
+    "question": "asdfghjkl qwerty 12345",
+    "expected_sql": "-- IRRELEVANT_QUERY",
+    "generated_sql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+    "graph_state": {
+      "queryIntent": "Irrelevant",
+      "finalSql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  }
+]

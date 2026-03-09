@@ -1,0 +1,353 @@
+[
+  {
+    "id": "E_NEW_1",
+    "category": "mixed",
+    "question": "How many brands are in the database?",
+    "expected_sql": "SELECT COUNT(*) AS brand_count FROM brands",
+    "generated_sql": "SELECT COUNT(DISTINCT brand_id) FROM brands",
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT COUNT(DISTINCT brand_id) FROM brands",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 1,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "E_NEW_2",
+    "category": "mixed",
+    "question": "List all products that cost less than $300",
+    "expected_sql": "SELECT product_name, list_price FROM products WHERE list_price < 300 ORDER BY list_price ASC",
+    "generated_sql": "SELECT product_name, list_price FROM products WHERE list_price < 300",
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT product_name, list_price FROM products WHERE list_price < 300",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 42,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "E_NEW_3",
+    "category": "mixed",
+    "question": "Show all products released in model year 2016",
+    "expected_sql": "SELECT product_name, list_price FROM products WHERE model_year = 2016",
+    "generated_sql": "SELECT product_id, product_name, brand_id, category_id, model_year, list_price FROM products WHERE model_year = 2016",
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT product_id, product_name, brand_id, category_id, model_year, list_price FROM products WHERE model_year = 2016",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 26,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "M_NEW_1",
+    "category": "mixed",
+    "question": "What is the average price of products in each category?",
+    "expected_sql": "SELECT c.category_name, ROUND(AVG(p.list_price), 2) AS avg_price FROM categories c JOIN products p ON c.category_id = p.category_id GROUP BY c.category_name ORDER BY avg_price DESC",
+    "generated_sql": "SELECT c.category_name, AVG(p.list_price) AS average_price FROM products p JOIN categories c ON p.category_id = c.category_id GROUP BY c.category_name",
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT c.category_name, AVG(p.list_price) AS average_price FROM products p JOIN categories c ON p.category_id = c.category_id GROUP BY c.category_name",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 7,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "M_NEW_2",
+    "category": "mixed",
+    "question": "How many products does each brand carry?",
+    "expected_sql": "SELECT b.brand_name, COUNT(p.product_id) AS product_count FROM brands b JOIN products p ON b.brand_id = p.brand_id GROUP BY b.brand_name ORDER BY product_count DESC",
+    "generated_sql": "SELECT b.brand_name, COUNT(p.product_id) AS product_count FROM products p JOIN brands b ON p.brand_id = b.brand_id GROUP BY b.brand_name",
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT b.brand_name, COUNT(p.product_id) AS product_count FROM products p JOIN brands b ON p.brand_id = b.brand_id GROUP BY b.brand_name",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 9,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "M_NEW_3",
+    "category": "mixed",
+    "question": "Which customers have never placed an order?",
+    "expected_sql": "SELECT first_name, last_name, email FROM customers WHERE customer_id NOT IN (SELECT DISTINCT customer_id FROM orders)",
+    "generated_sql": "SELECT first_name, last_name, email FROM customers WHERE customer_id NOT IN (SELECT DISTINCT customer_id FROM orders)",
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT first_name, last_name, email FROM customers WHERE customer_id NOT IN (SELECT DISTINCT customer_id FROM orders)",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 0,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "M_NEW_4",
+    "category": "mixed",
+    "question": "List all products from the Mountain Bikes category",
+    "expected_sql": "SELECT p.product_name, p.list_price FROM products p JOIN categories c ON p.category_id = c.category_id WHERE c.category_name = 'Mountain Bikes' ORDER BY p.list_price DESC",
+    "generated_sql": "SELECT p.product_id, p.product_name FROM categories c JOIN products p ON c.category_id = p.category_id WHERE c.category_name = 'Mountain Bikes'",
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT p.product_id, p.product_name FROM categories c JOIN products p ON c.category_id = p.category_id WHERE c.category_name = 'Mountain Bikes'",
+      "approved": false,
+      "execution_ok": true,
+      "row_count": 60,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": [
+        "The query is trying to join the 'categories' table with the 'products' table using 'category_id', but the 'categories' table does not have a 'category_name' of 'Mountain Bikes' in the provided schema. The 'categories' table has 'category_name' values like 'Children Bicycles', 'Comfort Bicycles', 'Cruisers Bicycles', etc., but 'Mountain Bikes' is not listed."
+      ]
+    }
+  },
+  {
+    "id": "H_NEW_1",
+    "category": "mixed",
+    "question": "What are the top 3 brands by total revenue generated?",
+    "expected_sql": "SELECT b.brand_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM brands b JOIN products p ON b.brand_id = p.brand_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY b.brand_name ORDER BY total_revenue DESC LIMIT 3",
+    "generated_sql": "SELECT b.brand_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM brands b JOIN products p ON b.brand_id = p.brand_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY b.brand_id, b.brand_name ORDER BY total_revenue DESC LIMIT 3",
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT b.brand_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM brands b JOIN products p ON b.brand_id = p.brand_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY b.brand_id, b.brand_name ORDER BY total_revenue DESC LIMIT 3",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 3,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H_NEW_2",
+    "category": "mixed",
+    "question": "Find customers who have spent more than the average customer total spending",
+    "expected_sql": "SELECT c.first_name, c.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name HAVING total_spent > (SELECT AVG(customer_total) FROM (SELECT customer_id, SUM(oi2.quantity * oi2.list_price * (1 - oi2.discount)) AS customer_total FROM orders o2 JOIN order_items oi2 ON o2.order_id = oi2.order_id GROUP BY o2.customer_id) sub) ORDER BY total_spent DESC",
+    "generated_sql": "WITH customer_spending AS (\n  SELECT c.customer_id, c.first_name, c.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_spent\n  FROM customers c\n  JOIN orders o ON c.customer_id = o.customer_id\n  JOIN order_items oi ON o.order_id = oi.order_id\n  GROUP BY c.customer_id, c.first_name, c.last_name\n)\nSELECT cs.first_name, cs.last_name\nFROM customer_spending cs\nWHERE cs.total_spent > (SELECT AVG(total_spent) FROM customer_spending)",
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "WITH customer_spending AS (\n  SELECT c.customer_id, c.first_name, c.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_spent\n  FROM customers c\n  JOIN orders o ON c.customer_id = o.customer_id\n  JOIN order_items oi ON o.order_id = oi.order_id\n  GROUP BY c.customer_id, c.first_name, c.last_name\n)\nSELECT cs.first_name, cs.last_name\nFROM customer_spending cs\nWHERE cs.total_spent > (SELECT AVG(total_spent) FROM customer_spending)",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 542,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H_NEW_3",
+    "category": "mixed",
+    "question": "Which category has the highest revenue per product?",
+    "expected_sql": "SELECT c.category_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) / COUNT(DISTINCT p.product_id) AS revenue_per_product FROM categories c JOIN products p ON c.category_id = p.category_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY c.category_name ORDER BY revenue_per_product DESC LIMIT 1",
+    "generated_sql": "SELECT c.category_name, (SUM(oi.quantity * oi.list_price * (1 - oi.discount)) / COUNT(DISTINCT p.product_id)) AS avg_revenue_per_product FROM categories c JOIN products p ON c.category_id = p.category_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY c.category_name ORDER BY avg_revenue_per_product DESC LIMIT 1",
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT c.category_name, (SUM(oi.quantity * oi.list_price * (1 - oi.discount)) / COUNT(DISTINCT p.product_id)) AS avg_revenue_per_product FROM categories c JOIN products p ON c.category_id = p.category_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY c.category_name ORDER BY avg_revenue_per_product DESC LIMIT 1",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 1,
+      "exec_fixes": 0,
+      "semantic_fixes": 1,
+      "issues": [
+        "The query does not answer the user's question. The user asked for the category with the highest revenue per product, but the query calculates the average revenue per product for each category. This does not necessarily identify the category with the highest revenue per product."
+      ]
+    }
+  },
+  {
+    "id": "H_NEW_4",
+    "category": "mixed",
+    "question": "Show each store's total revenue as a percentage of the overall revenue",
+    "expected_sql": "WITH store_rev AS (SELECT s.store_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS store_total FROM stores s JOIN orders o ON s.store_id = o.store_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY s.store_name), total_rev AS (SELECT SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS grand_total FROM order_items oi) SELECT sr.store_name, ROUND((sr.store_total / tr.grand_total) * 100, 2) AS revenue_pct FROM store_rev sr, total_rev tr ORDER BY revenue_pct DESC",
+    "generated_sql": "WITH store_revenue AS (\n    SELECT s.store_id, s.store_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue\n    FROM stores s\n    JOIN orders o ON s.store_id = o.store_id\n    JOIN order_items oi ON o.order_id = oi.order_id\n    GROUP BY s.store_id, s.store_name\n),\noverall_revenue AS (\n    SELECT SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS overall_total\n    FROM order_items oi\n)\nSELECT sr.store_name, ROUND((sr.total_revenue / orv.overall_total) * 100, 2) AS revenue_pct\nFROM store_revenue sr, overall_revenue orv\nORDER BY revenue_pct DESC\nLIMIT 1",
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "WITH store_revenue AS (\n    SELECT s.store_id, s.store_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue\n    FROM stores s\n    JOIN orders o ON s.store_id = o.store_id\n    JOIN order_items oi ON o.order_id = oi.order_id\n    GROUP BY s.store_id, s.store_name\n),\noverall_revenue AS (\n    SELECT SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS overall_total\n    FROM order_items oi\n)\nSELECT sr.store_name, ROUND((sr.total_revenue / orv.overall_total) * 100, 2) AS revenue_pct\nFROM store_revenue sr, overall_revenue orv\nORDER BY revenue_pct DESC\nLIMIT 1",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 1,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H_NEW_5",
+    "category": "mixed",
+    "question": "Find staff members who have handled orders for more than 200 unique customers",
+    "expected_sql": "SELECT s.first_name, s.last_name, COUNT(DISTINCT o.customer_id) AS unique_customers FROM staffs s JOIN orders o ON s.staff_id = o.staff_id GROUP BY s.staff_id, s.first_name, s.last_name HAVING COUNT(DISTINCT o.customer_id) > 200 ORDER BY unique_customers DESC",
+    "generated_sql": "SELECT s.first_name, s.last_name, COUNT(DISTINCT o.customer_id) AS unique_customers FROM staffs s INNER JOIN orders o ON s.staff_id = o.staff_id GROUP BY s.staff_id, s.first_name, s.last_name HAVING unique_customers > 200",
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT s.first_name, s.last_name, COUNT(DISTINCT o.customer_id) AS unique_customers FROM staffs s INNER JOIN orders o ON s.staff_id = o.staff_id GROUP BY s.staff_id, s.first_name, s.last_name HAVING unique_customers > 200",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 2,
+      "exec_fixes": 1,
+      "semantic_fixes": 0,
+      "issues": [
+        "Exec error (attempt 0): Binder Error: column \"first_name\" must appear in the GROUP BY clause or must be part of an aggregate function.\nEither add it to the GROUP BY list, or use \"ANY_VALUE(first_name)\" if the exact value of \"first_name\" is not important.\nLINE 1: SELECT s.first_name, s.last_name, COUNT(DISTIN...\n               ^"
+      ]
+    }
+  },
+  {
+    "id": "A_NEW_1",
+    "category": "mixed",
+    "question": "Who are the best performing staff members?",
+    "expected_sql": "-- AMBIGUOUS_QUERY",
+    "generated_sql": "-- AMBIGUOUS_QUERY: What metric should be used to determine the best performing staff members? (e.g., total revenue, number of orders, etc.)",
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: What metric should be used to determine the best performing staff members? (e.g., total revenue, number of orders, etc.)",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "A_NEW_2",
+    "category": "mixed",
+    "question": "Which products are running low on stock?",
+    "expected_sql": "-- AMBIGUOUS_QUERY",
+    "generated_sql": "SELECT p.product_name, st.quantity FROM products p JOIN stocks st ON p.product_id = st.product_id WHERE st.quantity < 10",
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT p.product_name, st.quantity FROM products p JOIN stocks st ON p.product_id = st.product_id WHERE st.quantity < 10",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 323,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "A_NEW_3",
+    "category": "mixed",
+    "question": "Show me the worst stores",
+    "expected_sql": "-- AMBIGUOUS_QUERY",
+    "generated_sql": "-- AMBIGUOUS_QUERY: Could you please specify the metric you would like to use to determine the worst stores? For example, total revenue, number of orders, or inventory value?",
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: Could you please specify the metric you would like to use to determine the worst stores? For example, total revenue, number of orders, or inventory value?",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "A_NEW_4",
+    "category": "mixed",
+    "question": "Are there any loyal customers?",
+    "expected_sql": "-- AMBIGUOUS_QUERY",
+    "generated_sql": "-- AMBIGUOUS_QUERY: What specific metric would you like to use to determine loyalty? For example, by the number of orders, total amount spent, or frequency of purchases?",
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: What specific metric would you like to use to determine loyalty? For example, by the number of orders, total amount spent, or frequency of purchases?",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "A_NEW_5",
+    "category": "mixed",
+    "question": "Which products are overpriced?",
+    "expected_sql": "-- AMBIGUOUS_QUERY",
+    "generated_sql": "-- AMBIGUOUS_QUERY: What criteria should be used to determine if a product is overpriced? For example, is it based on a specific price threshold or compared to the average list price of all products?",
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: What criteria should be used to determine if a product is overpriced? For example, is it based on a specific price threshold or compared to the average list price of all products?",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "N_NEW_1",
+    "category": "mixed",
+    "question": "What time does the store open on weekends?",
+    "expected_sql": "-- IRRELEVANT_QUERY",
+    "generated_sql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+    "graph_state": {
+      "queryIntent": "Irrelevant",
+      "finalSql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "N_NEW_2",
+    "category": "mixed",
+    "question": "Can you recommend a good beginner mountain bike under $800?",
+    "expected_sql": "-- IRRELEVANT_QUERY",
+    "generated_sql": "SELECT product_name, list_price FROM products JOIN categories ON products.category_id = categories.category_id WHERE categories.category_name = 'Comfort Bicycles' AND list_price < 800",
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT product_name, list_price FROM products JOIN categories ON products.category_id = categories.category_id WHERE categories.category_name = 'Comfort Bicycles' AND list_price < 800",
+      "approved": false,
+      "execution_ok": true,
+      "row_count": 25,
+      "exec_fixes": 0,
+      "semantic_fixes": 1,
+      "issues": [
+        "The category 'Mountain Bikes' does not exist in the categories table. The available categories are 'Children Bicycles', 'Comfort Bicycles', and 'Cruisers Bicycles'.",
+        "The query is looking for 'Comfort Bicycles' instead of 'Mountain Bicycles'.",
+        "The query does not filter for beginner bikes, which should be implied by the price range and category.",
+        "Semantic fix failed execution: Catalog Error: Scalar Function with name curdate does not exist!\nDid you mean \"current_date\"?\nLINE 1: ...ist_price < 800 AND model_year <= YEAR(CURDATE()) - 3\n                                                  ^"
+      ]
+    }
+  },
+  {
+    "id": "N_NEW_3",
+    "category": "mixed",
+    "question": "What is the return policy for damaged bikes?",
+    "expected_sql": "-- IRRELEVANT_QUERY",
+    "generated_sql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+    "graph_state": {
+      "queryIntent": "Irrelevant",
+      "finalSql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  }
+]

@@ -5,17 +5,11 @@ Run:
 """
 
 import os
-import sys
+from src.graph.GraphWorkflow import SqlGenerationPipeline
 
 # Walk up from src/graph/visualization/ to the repo root (contains src/)
 _HERE = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.abspath(os.path.join(_HERE, '..', '..', '..'))
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
-
-from src.graph.GraphWorkflow import SqlGenerationPipeline
-
-OUTPUT = os.path.join(REPO_ROOT, 'graph.png')
+OUTPUT = os.path.join(_HERE, 'graph.png')
 
 
 def main():

@@ -38,9 +38,6 @@ def SqlGenerationPipeline(sqlAgent, validator):
     """
     Build and compile the SQL generation LangGraph pipeline.
 
-    Agents are bound into each node via functools.partial so every node
-    remains a plain function (no closures or factory nesting).
-
     Args:
         sqlAgent:  SQLAgent instance
         validator: ValidatorAgent instance

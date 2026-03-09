@@ -10,7 +10,7 @@ from src.utils.constants import K_TEMPERATURES
 
 
 def generateSqlNode(state: SQLGenerationState, sqlAgent) -> dict:
-    """Fast path: generate SQL and classify intent at default temperature."""
+    """Generate SQL and classify intent at default temperature."""
     try:
         result = sqlAgent.generate(state['question'])
         return {
@@ -60,11 +60,8 @@ def generateReframedQuestion(original: str, clarification_q: str, user_answer: s
 def clarificationNode(state: SQLGenerationState) -> dict:
     """
     Multi-conversational clarification node when user query is ambiguous.
-    Prompts the user to resolve the ambiguity and generate a reframed question.
+    Prompts the user to resolve the ambiguity and generate a reframed question. ONLY when multiconversational is enabled. 
 
-    Sets multiConversational=False to prevent infinite clarification loops:
-    if the enriched question is still Ambiguous, generateSqlNode will fall
-    through to validateNode with best-effort SQL on the next pass.
     """
     clarification_q = state.get('clarificationQuestion', 'Could you clarify your question?')
     print(f"\n🤔 {clarification_q}")
@@ -121,12 +118,12 @@ def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
     # First slot reuses existing SQL; remaining slots generate at varied temps.
     generation_plan = [(K_TEMPERATURES[0], initial_sql)] + [(t, None) for t in K_TEMPERATURES[1:]]
 
+    print(f"\nGenerating SQL Candidate(s)...")
     candidates = []
     for temp, prebuilt_sql in generation_plan:
         if prebuilt_sql is not None:
-            # Sentinel from a failed generateSqlNode — skip rather than waste
-            # MAX_EXEC_FIXES LLM calls trying to "fix" a SQL comment.
-            if prebuilt_sql.startswith('--'):
+            # Skip empty SQL or comment-only placeholders (Irrelevant/Ambiguous markers)
+            if not prebuilt_sql.strip() or prebuilt_sql.strip().startswith('--'):
                 continue
             sql = prebuilt_sql
         else:
@@ -151,7 +148,7 @@ def kCandidatesNode(state: SQLGenerationState, sqlAgent, validator) -> dict:
             'score':      scoreCandidate(validation),
         })
 
-        #If candidate executes and is approved, break early
+        # If candidate executes and is approved, break early
         if validation['execution_ok'] and validation['approved']:
             break
 
