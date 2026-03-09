@@ -42,7 +42,7 @@ ollama pull qwen3:8b  # SQL generation + validation
 ollama pull llama3.2:latest        # ReAct tool-use loop
 ```
 
-**Carleton Server*:
+**Carleton Server***:
 
 Create a `.env` file in the project root (copy from `.env.example`) and fill in your credentials:
 

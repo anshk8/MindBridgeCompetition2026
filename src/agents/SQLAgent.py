@@ -3,7 +3,6 @@ SQL Generator Agent
 - Chain of Thought reasoning + Few-Shot Learning + ReAct loop tool-use
 """
 
-import os
 import numpy as np
 from typing import List
 from sentence_transformers import SentenceTransformer
@@ -92,13 +91,13 @@ class SQLAgent:
                 options={'temperature': 0.0, 'think': False},  
             )
 
-            toolCalls = toolResponse['message'].get('toolCalls') or []
-            if not toolCalls:
+            tool_calls = toolResponse['message'].get('toolCalls') or []
+            if not tool_calls:
                 break
 
             ReActLoopMessages.append(toolResponse['message'])
 
-            for tc in toolCalls:
+            for tc in tool_calls:
                 func_name = tc['function']['name']
                 result_lines = executeTool(tc, db_path=self.dbPath, schema_info=self.schemaInfo)
                 result_text = '\n'.join(result_lines)

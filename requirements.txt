@@ -9,6 +9,9 @@ sqlalchemy==2.0.35
 # Data loading
 kagglehub==0.3.4
 
+# Environment variables
+python-dotenv==1.2.2
+
 # Ollama (required - for LLM access)
 ollama==0.4.7
 
