@@ -62,7 +62,7 @@ My submission uses a **two-stage agentic pipeline** orchestrated by LangGraph:
 
 - **SQLAgent (generateSqlNode)** — SQL Generation master.Classifies query intent (Clear / Ambiguous / Irrelevant), uses dynamic few-shot retrieval via semantic similarity to find the most relevant examples, uses step by step Chain-of-Thought reasoning and a ReAct loop using schema-probing tools to verify database information before producing the final SQL.
 
-- **K-Candidate Generation & Validation (kCandidatesNode)** — Generates multiple SQL candidates at varied temperatures (0.7, 0.3, 1.0, 0.5, ...) and returns the first one passing execution and semantic validation.
+- **K-Candidate Generation & Validation (kCandidatesNode)** — Generates multiple SQL candidates at varied temperatures (0.7, 0.3, 1.1) and returns the first one passing execution and semantic validation. ONLY THREE temperatures because we want generation time <= 5 minutes. Having more than 3 temperatures would exceed a reasonable time limit. 
 
 - **ValidatorAgent** — Ensures the final SQL is executable and semantically correct by executing, repairing failures (≤2 rounds), and validating results match user intent.
 
@@ -95,12 +95,12 @@ My submission uses a **two-stage agentic pipeline** orchestrated by LangGraph:
      Irrelevant                    Ambiguous                             Clear    │
           │                             │                                  │      │
           v                  ┌──────────┴───────────┐                      v      │
-     Return NULL             │                      │                  kCandidatesNode
-      Query         multiConversational=OFF   multiConversational=ON   ┌──────────────────┐
+     Return                  │                      │                  kCandidatesNode
+   Blank / EXIT     multiConversational=OFF   multiConversational=ON   ┌──────────────────┐
                              │                      │                  │ Temp 0.7 → Val?  │
                              v                      v                  │  Exit on pass    │
                         Return Hint        ┌─────────────────┐         │ Temp 0.3 → Val?  │
-                         Comment           │clarificationNode│         │ Temp 1.0 → Val?  │
+                     Comment / Exit        │clarificationNode│         │ Temp 1.1 → Val?  │
                                            │  Ask User for   │         │  ...retry...     │
                                            │  Input, Reframe │         └────────┬─────────┘
                                            │  Question       │                  │
@@ -194,6 +194,16 @@ Enter your question: Why am I feeling sick in the store?
 Enter your question: 
 
 ```
+
+## Safe Fallback for All Edge Cases
+
+For every edge case such as ambiguous (when `multiConversational` is off), irrelevant, or unanswerablem, `generate_query` in `agent.py` intercepts any `-- AMBIGUOUS_QUERY`, `-- IRRELEVANT_QUERY`, or `-- UNANSWERABLE_QUERY` marker and replaces it with:
+
+```sql
+SELECT 1 WHERE 1=0
+```
+
+This guarantees that all questions always receive a valid, executable SQL statement that returns zero rows for no execution errors, no crashes, and no output that can be misinterpreted.
 
 ---
 
@@ -292,14 +302,7 @@ ReAct Round 0:
   Result:     brands.brand_name: ['Electra']
               products.product_name: ['Electra Townie Original 21D - 2016', ...]
 
-ReAct Round 1:
-  LLM thinks: "Electra is a brand. I need to join brands → products → order_items → orders."
-  Final answer: SELECT o.order_id, o.order_date, ...
-                FROM brands b
-                JOIN products p ON b.brand_id = p.brand_id
-                JOIN order_items oi ON p.product_id = oi.product_id
-                JOIN orders o ON oi.order_id = o.order_id
-                WHERE b.brand_name = 'Electra'
+# ... Now the call for SQL Generation after ReAct loop has more context!
 ```
 
 If all tool rounds complete without the model calling a tool, the agent proceeds directly to the final structured call with a strict Pydantic schema constraint (`format=SQLResult.model_json_schema()`) — so it never crashes.
@@ -345,7 +348,7 @@ Ensures that generated SQL is both executable and semantically correct before re
 
 ## Multi-Conversational Mode
 
-By default, ambiguous queries return a hint comment (`-- AMBIGUOUS_QUERY: ...`) so the pipeline never blocks on `input()` during automated evaluations. To enable the interactive clarification loop, set the flag in `agent.py`:
+By default, ambiguous queries return a hint comment (`❓ Query was ambiguous — try being more specific.`) so the pipeline never blocks on `input()` during automated evaluations. To enable the interactive clarification loop, set the flag in `agent.py`:
 
 ```python
 # agent.py — QueryWriter.__init__
