@@ -1,8 +1,6 @@
 # ValidatorAgent.py: Validate Execution and Semantics of SQL Queries with LLM Feedback Loops
 
 
-import os
-import ollama
 from typing import Dict, Any, Optional
 from src.utils.helpers import executeSQL
 from src.utils.prompts import (
@@ -13,14 +11,14 @@ from src.utils.prompts import (
 )
 from src.schemas.ValidatorAgentSchemas import ReviewResult, FixResult, ValidationResult
 from src.utils.constants import MAX_EXEC_FIXES, MAX_SEMANTIC_FIXES
+from src.utils.ollamaClient import ollamaClient, OLLAMA_MODEL
+
 
 class ValidatorAgent:
     def __init__(self, dbPath: str):
         self.dbPath = dbPath
-        self.model  = os.getenv('OLLAMA_MODEL', 'qwen3:32b')
-        self.ollamaClient = ollama.Client(
-            host=os.getenv('OLLAMA_HOST', 'http://localhost:11434')
-        )
+        self.model  = OLLAMA_MODEL
+        self.ollamaClient = ollamaClient
 
 
     def validateSQL(self, question: str, sql: str, schemaContext: str) -> ValidationResult:
@@ -165,6 +163,7 @@ class ValidatorAgent:
                     {'role': 'system', 'content': buildReviewerSystemPrompt()},
                     {'role': 'user',   'content': prompt},
                 ],
+                options={'think': False}
             )
             result = ReviewResult.model_validate_json(response['message']['content'])
             suggestion = None
@@ -187,6 +186,7 @@ class ValidatorAgent:
                     {'role': 'system', 'content': buildFixerSystemPrompt()},
                     {'role': 'user',   'content': prompt},
                 ],
+                options={'think': False}
             )
             result = FixResult.model_validate_json(response['message']['content'])
             return result.sql.rstrip(';')

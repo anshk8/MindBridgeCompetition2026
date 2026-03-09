@@ -1,0 +1,239 @@
+[
+  {
+    "id": "H1",
+    "category": "hard",
+    "question": "What is the average order value for each customer?",
+    "expected_sql": "SELECT c.first_name, c.last_name, AVG(oi.quantity * oi.list_price * (1 - oi.discount)) as avg_order_value FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name",
+    "generated_sql": "SELECT customer_id, SUM(oi.quantity * (oi.list_price - oi.discount)) / COUNT(DISTINCT o.order_id) AS average_order_value FROM orders o JOIN order_items oi ON o.order_id = oi.order_id GROUP BY o.customer_id",
+    "time_minutes": 0.5165,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT customer_id, SUM(oi.quantity * (oi.list_price - oi.discount)) / COUNT(DISTINCT o.order_id) AS average_order_value FROM orders o JOIN order_items oi ON o.order_id = oi.order_id GROUP BY o.customer_id",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 1445,
+      "exec_fixes": 0,
+      "semantic_fixes": 1,
+      "issues": [
+        "The calculation uses COUNT(oi.order_id) which counts order items instead of orders. This would divide total value by number of items rather than number of orders.",
+        "The query should use COUNT(DISTINCT o.order_id) in the denominator to correctly calculate average order value per customer"
+      ]
+    }
+  },
+  {
+    "id": "H2",
+    "category": "hard",
+    "question": "Which products have never been ordered?",
+    "expected_sql": "SELECT product_name, product_id FROM products WHERE product_id NOT IN (SELECT DISTINCT product_id FROM order_items)",
+    "generated_sql": "SELECT p.product_id, p.product_name FROM products p WHERE NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.product_id = p.product_id)",
+    "time_minutes": 0.3362,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT p.product_id, p.product_name FROM products p WHERE NOT EXISTS (SELECT 1 FROM order_items oi WHERE oi.product_id = p.product_id)",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 14,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H3",
+    "category": "hard",
+    "question": "Show the top 3 customers by total purchase amount",
+    "expected_sql": "SELECT c.first_name, c.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) as total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name ORDER BY total_spent DESC LIMIT 3",
+    "generated_sql": "SELECT c.first_name, c.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name ORDER BY total_spent DESC LIMIT 3",
+    "time_minutes": 0.2133,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT c.first_name, c.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name ORDER BY total_spent DESC LIMIT 3",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 3,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H4",
+    "category": "hard",
+    "question": "For each store, show the most expensive product in stock",
+    "expected_sql": "SELECT s.store_name, p.product_name, p.list_price FROM stores s JOIN stocks st ON s.store_id = st.store_id JOIN products p ON st.product_id = p.product_id WHERE (s.store_id, p.list_price) IN (SELECT st2.store_id, MAX(p2.list_price) FROM stocks st2 JOIN products p2 ON st2.product_id = p2.product_id GROUP BY st2.store_id)",
+    "generated_sql": "SELECT s.store_name, p.product_name, p.list_price FROM stores s JOIN stocks st ON s.store_id = st.store_id JOIN products p ON st.product_id = p.product_id JOIN (SELECT st2.store_id, MAX(p2.list_price) AS max_price FROM stocks st2 JOIN products p2 ON st2.product_id = p2.product_id GROUP BY st2.store_id) mx ON s.store_id = mx.store_id AND p.list_price = mx.max_price",
+    "time_minutes": 0.2902,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT s.store_name, p.product_name, p.list_price FROM stores s JOIN stocks st ON s.store_id = st.store_id JOIN products p ON st.product_id = p.product_id JOIN (SELECT st2.store_id, MAX(p2.list_price) AS max_price FROM stocks st2 JOIN products p2 ON st2.product_id = p2.product_id GROUP BY st2.store_id) mx ON s.store_id = mx.store_id AND p.list_price = mx.max_price",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 3,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H5",
+    "category": "hard",
+    "question": "What percentage of total revenue does each category contribute?",
+    "expected_sql": "SELECT c.category_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) as category_revenue, (SUM(oi.quantity * oi.list_price * (1 - oi.discount)) * 100.0 / (SELECT SUM(quantity * list_price * (1 - discount)) FROM order_items)) as revenue_percentage FROM categories c JOIN products p ON c.category_id = p.category_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY c.category_name ORDER BY revenue_percentage DESC",
+    "generated_sql": "WITH category_revenue AS (SELECT c.category_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS category_total FROM categories c JOIN products p ON c.category_id = p.category_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY c.category_name), total_revenue AS (SELECT SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS overall_total FROM order_items oi) SELECT cr.category_name, ROUND((cr.category_total / tr.overall_total) * 100, 2) AS revenue_pct FROM category_revenue cr, total_revenue tr ORDER BY revenue_pct DESC",
+    "time_minutes": 0.3037,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "WITH category_revenue AS (SELECT c.category_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS category_total FROM categories c JOIN products p ON c.category_id = p.category_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY c.category_name), total_revenue AS (SELECT SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS overall_total FROM order_items oi) SELECT cr.category_name, ROUND((cr.category_total / tr.overall_total) * 100, 2) AS revenue_pct FROM category_revenue cr, total_revenue tr ORDER BY revenue_pct DESC",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 7,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H11",
+    "category": "hard",
+    "question": "Which store generated the highest total revenue?",
+    "expected_sql": "SELECT s.store_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM stores s JOIN orders o ON s.store_id = o.store_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY s.store_id, s.store_name ORDER BY total_revenue DESC LIMIT 1",
+    "generated_sql": "SELECT s.store_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM stores s JOIN orders o ON s.store_id = o.store_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY s.store_id, s.store_name ORDER BY total_revenue DESC LIMIT 1",
+    "time_minutes": 0.2495,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT s.store_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM stores s JOIN orders o ON s.store_id = o.store_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY s.store_id, s.store_name ORDER BY total_revenue DESC LIMIT 1",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 1,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H12",
+    "category": "hard",
+    "question": "What is the most ordered product by total quantity sold?",
+    "expected_sql": "SELECT p.product_name, SUM(oi.quantity) AS total_quantity_sold FROM products p JOIN order_items oi ON p.product_id = oi.product_id GROUP BY p.product_id, p.product_name ORDER BY total_quantity_sold DESC LIMIT 1",
+    "generated_sql": "SELECT p.product_name, SUM(oi.quantity) AS total_quantity FROM products p JOIN order_items oi ON p.product_id = oi.product_id GROUP BY p.product_id, p.product_name ORDER BY total_quantity DESC LIMIT 1",
+    "time_minutes": 0.4679,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT p.product_name, SUM(oi.quantity) AS total_quantity FROM products p JOIN order_items oi ON p.product_id = oi.product_id GROUP BY p.product_id, p.product_name ORDER BY total_quantity DESC LIMIT 1",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 1,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H13",
+    "category": "hard",
+    "question": "Find customers who have ordered products from at least 3 different categories",
+    "expected_sql": "SELECT c.first_name, c.last_name, COUNT(DISTINCT p.category_id) AS category_count FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id JOIN products p ON oi.product_id = p.product_id GROUP BY c.customer_id, c.first_name, c.last_name HAVING COUNT(DISTINCT p.category_id) >= 3 ORDER BY category_count DESC",
+    "generated_sql": "SELECT c.first_name, c.last_name, COUNT(DISTINCT p.category_id) AS category_count FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id JOIN products p ON oi.product_id = p.product_id GROUP BY c.customer_id, c.first_name, c.last_name HAVING COUNT(DISTINCT p.category_id) >= 3",
+    "time_minutes": 0.5301,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT c.first_name, c.last_name, COUNT(DISTINCT p.category_id) AS category_count FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id JOIN products p ON oi.product_id = p.product_id GROUP BY c.customer_id, c.first_name, c.last_name HAVING COUNT(DISTINCT p.category_id) >= 3",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 644,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H14",
+    "category": "hard",
+    "question": "Which staff member has handled the most orders and how many?",
+    "expected_sql": "SELECT s.first_name, s.last_name, COUNT(o.order_id) AS orders_handled FROM staffs s JOIN orders o ON s.staff_id = o.staff_id GROUP BY s.staff_id, s.first_name, s.last_name ORDER BY orders_handled DESC LIMIT 1",
+    "generated_sql": "SELECT s.first_name, s.last_name, COUNT(o.order_id) AS order_count FROM staffs s JOIN orders o ON s.staff_id = o.staff_id GROUP BY s.staff_id, s.first_name, s.last_name ORDER BY order_count DESC LIMIT 1",
+    "time_minutes": 0.3425,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT s.first_name, s.last_name, COUNT(o.order_id) AS order_count FROM staffs s JOIN orders o ON s.staff_id = o.staff_id GROUP BY s.staff_id, s.first_name, s.last_name ORDER BY order_count DESC LIMIT 1",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 1,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H15",
+    "category": "hard",
+    "question": "Show all products that have stock below 5 units in any store",
+    "expected_sql": "SELECT p.product_name, s.store_name, st.quantity FROM products p JOIN stocks st ON p.product_id = st.product_id JOIN stores s ON st.store_id = s.store_id WHERE st.quantity < 5 ORDER BY st.quantity ASC",
+    "generated_sql": "SELECT p.product_name, st.quantity FROM products p JOIN stocks st ON p.product_id = st.product_id WHERE st.quantity < 5",
+    "time_minutes": 0.6013,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT p.product_name, st.quantity FROM products p JOIN stocks st ON p.product_id = st.product_id WHERE st.quantity < 5",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 166,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H16",
+    "category": "hard",
+    "question": "What is the total revenue generated by each staff member?",
+    "expected_sql": "SELECT s.first_name, s.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM staffs s JOIN orders o ON s.staff_id = o.staff_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY s.staff_id, s.first_name, s.last_name ORDER BY total_revenue DESC",
+    "generated_sql": "SELECT s.staff_id, s.first_name, s.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM staffs s JOIN orders o ON s.staff_id = o.staff_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY s.staff_id, s.first_name, s.last_name ORDER BY total_revenue DESC",
+    "time_minutes": 0.4301,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT s.staff_id, s.first_name, s.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM staffs s JOIN orders o ON s.staff_id = o.staff_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY s.staff_id, s.first_name, s.last_name ORDER BY total_revenue DESC",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 6,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H17",
+    "category": "hard",
+    "question": "Which order contained the most individual items (by total quantity)?",
+    "expected_sql": "SELECT oi.order_id, SUM(oi.quantity) AS total_items FROM order_items oi GROUP BY oi.order_id ORDER BY total_items DESC LIMIT 1",
+    "generated_sql": "SELECT order_id, SUM(quantity) AS total_quantity FROM order_items GROUP BY order_id ORDER BY total_quantity DESC LIMIT 1",
+    "time_minutes": 0.3635,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT order_id, SUM(quantity) AS total_quantity FROM order_items GROUP BY order_id ORDER BY total_quantity DESC LIMIT 1",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 1,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H18",
+    "category": "hard",
+    "question": "Show the average discount percentage applied per product category",
+    "expected_sql": "SELECT c.category_name, ROUND(AVG(oi.discount) * 100, 2) AS avg_discount_pct FROM categories c JOIN products p ON c.category_id = p.category_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY c.category_id, c.category_name ORDER BY avg_discount_pct DESC",
+    "generated_sql": "SELECT c.category_name, AVG(oi.discount) AS average_discount_percentage FROM order_items oi JOIN products p ON oi.product_id = p.product_id JOIN categories c ON p.category_id = c.category_id GROUP BY c.category_name ORDER BY c.category_name",
+    "time_minutes": 0.2893,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT c.category_name, AVG(oi.discount) AS average_discount_percentage FROM order_items oi JOIN products p ON oi.product_id = p.product_id JOIN categories c ON p.category_id = c.category_id GROUP BY c.category_name ORDER BY c.category_name",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 7,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  }
+]

@@ -3,10 +3,8 @@ SQL Generator Agent
 - Chain of Thought reasoning + Few-Shot Learning + ReAct loop tool-use
 """
 
-import os
 import numpy as np
 from typing import List
-import ollama
 from sentence_transformers import SentenceTransformer
 from src.utils.helpers import loadSchema, buildSchemaContext
 from src.utils.prompts import (
@@ -18,16 +16,18 @@ from src.utils.prompts import (
 from src.schemas.SQLAgentSchemas import SQLResult
 from src.agents.tools.toolHelpers import getTools, executeTool
 from src.utils.fewShotExamples import FewShotExample, FEW_SHOT_EXAMPLES
+from src.utils.ollamaClient import ollamaClient, OLLAMA_MODEL, OLLAMA_REACT_MODEL
+
 
 
 class SQLAgent:
     def __init__(self, dbPath: str = 'bike_store.db', schemaInfo: dict = None):
         # Model setup
-        self.model = os.getenv('OLLAMA_MODEL', 'qwen3:32b')
+        self.model = OLLAMA_MODEL
         # Separate model for the tool-probe phase — llama3.2:latest has better native tool-call support
-        self.toolLoopModel = os.getenv('OLLAMA_REACT_MODEL', 'llama3.2:latest')
-        self.ollamaClient = ollama.Client(host=os.getenv(
-            'OLLAMA_HOST', 'http://localhost:11434'))
+        self.toolLoopModel = OLLAMA_REACT_MODEL
+
+        self.ollamaClient = ollamaClient
 
         # Store DB path but don't keep connection open
         self.dbPath = dbPath
@@ -84,18 +84,18 @@ class SQLAgent:
 
         print("Generating...")
         for _ in range(2):
-            probe_response = self.ollamaClient.chat(
+            toolResponse = self.ollamaClient.chat(
                 model=self.toolLoopModel,
                 messages=ReActLoopMessages,
                 tools=getTools(),
-                options={'temperature': 0.0},  
+                options={'temperature': 0.0, 'think': False},  
             )
 
-            tool_calls = probe_response['message'].get('tool_calls') or []
+            tool_calls = toolResponse['message'].get('toolCalls') or []
             if not tool_calls:
                 break
 
-            ReActLoopMessages.append(probe_response['message'])
+            ReActLoopMessages.append(toolResponse['message'])
 
             for tc in tool_calls:
                 func_name = tc['function']['name']
@@ -126,7 +126,7 @@ class SQLAgent:
             model=self.model,
             messages=sql_messages,
             format=SQLResult.model_json_schema(),
-            options={'temperature': temperature},
+            options={'temperature': temperature, 'think': False},
         )
 
         result = SQLResult.model_validate_json(final_response['message']['content'])

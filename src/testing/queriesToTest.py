@@ -2,6 +2,172 @@
 queriesToTest.py — All test query banks for automated testing within testAgentPipeline
 """
 
+FINAL_TEST_BANK = {
+    "all":[
+    # ── EASY ──────────────────────────────────────────────────────────────
+    {
+        "id": "FE1",
+        "category": "easy",
+        "question": "How many customers are in the database?",
+        "expected_sql": "SELECT COUNT(*) AS customer_count FROM customers"
+    },
+    {
+        "id": "FE2",
+        "category": "easy",
+        "question": "List all product categories",
+        "expected_sql": "SELECT category_id, category_name FROM categories"
+    },
+    {
+        "id": "FE3",
+        "category": "easy",
+        "question": "What is the most expensive product?",
+        "expected_sql": "SELECT product_name, list_price FROM products ORDER BY list_price DESC LIMIT 1"
+    },
+    {
+        "id": "FE4",
+        "category": "easy",
+        "question": "Show all stores and their cities",
+        "expected_sql": "SELECT store_name, city, state FROM stores"
+    },
+    {
+        "id": "FE5",
+        "category": "easy",
+        "question": "How many products are in the database?",
+        "expected_sql": "SELECT COUNT(*) AS product_count FROM products"
+    },
+
+    # ── MEDIUM ────────────────────────────────────────────────────────────
+    {
+        "id": "FM1",
+        "category": "medium",
+        "question": "What is the average list price of products in each category?",
+        "expected_sql": "SELECT c.category_name, ROUND(AVG(p.list_price), 2) AS avg_price FROM categories c JOIN products p ON c.category_id = p.category_id GROUP BY c.category_name ORDER BY avg_price DESC"
+    },
+    {
+        "id": "FM2",
+        "category": "medium",
+        "question": "How many products does each brand carry?",
+        "expected_sql": "SELECT b.brand_name, COUNT(p.product_id) AS product_count FROM brands b JOIN products p ON b.brand_id = p.brand_id GROUP BY b.brand_id, b.brand_name ORDER BY product_count DESC"
+    },
+    {
+        "id": "FM3",
+        "category": "medium",
+        "question": "Which customers have never placed an order?",
+        "expected_sql": "SELECT first_name, last_name, email FROM customers WHERE customer_id NOT IN (SELECT DISTINCT customer_id FROM orders)"
+    },
+    {
+        "id": "FM4",
+        "category": "medium",
+        "question": "Which customers are from California?",
+        "expected_sql": "SELECT first_name, last_name, city FROM customers WHERE state = 'CA'"
+    },
+    {
+        "id": "FM5",
+        "category": "medium",
+        "question": "What is the total stock quantity for each store?",
+        "expected_sql": "SELECT s.store_name, SUM(st.quantity) AS total_stock FROM stores s JOIN stocks st ON s.store_id = st.store_id GROUP BY s.store_id, s.store_name ORDER BY total_stock DESC"
+    },
+    {
+        "id": "FM6",
+        "category": "medium",
+        "question": "Show all products released in model year 2019",
+        "expected_sql": "SELECT product_name, list_price FROM products WHERE model_year = 2019 ORDER BY list_price DESC"
+    },
+    {
+        "id": "FM7",
+        "category": "medium",
+        "question": "Which orders are currently pending?",
+        "expected_sql": "SELECT order_id, customer_id, order_date FROM orders WHERE order_status = 1 ORDER BY order_date DESC"
+    },
+    {
+        "id": "FM8",
+        "category": "medium",
+        "question": "What is the earliest order date in the database?",
+        "expected_sql": "SELECT MIN(order_date) AS earliest_order FROM orders"
+    },
+
+    # ── HARD ──────────────────────────────────────────────────────────────
+    {
+        "id": "FH1",
+        "category": "hard",
+        "question": "What are the top 3 brands by total revenue?",
+        "expected_sql": "SELECT b.brand_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM brands b JOIN products p ON b.brand_id = p.brand_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY b.brand_id, b.brand_name ORDER BY total_revenue DESC LIMIT 3"
+    },
+    {
+        "id": "FH2",
+        "category": "hard",
+        "question": "Show each store's total revenue as a percentage of overall revenue",
+        "expected_sql": "WITH store_rev AS (SELECT s.store_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS store_total FROM stores s JOIN orders o ON s.store_id = o.store_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY s.store_name), total_rev AS (SELECT SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS grand_total FROM order_items oi) SELECT sr.store_name, ROUND(sr.store_total / tr.grand_total * 100, 2) AS revenue_pct FROM store_rev sr, total_rev tr ORDER BY revenue_pct DESC"
+    },
+    {
+        "id": "FH3",
+        "category": "hard",
+        "question": "Find customers who have spent more than the average customer total spending",
+        "expected_sql": "SELECT c.first_name, c.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name HAVING total_spent > (SELECT AVG(customer_total) FROM (SELECT SUM(oi2.quantity * oi2.list_price * (1 - oi2.discount)) AS customer_total FROM orders o2 JOIN order_items oi2 ON o2.order_id = oi2.order_id GROUP BY o2.customer_id) sub) ORDER BY total_spent DESC"
+    },
+    {
+        "id": "FH4",
+        "category": "hard",
+        "question": "Show the cheapest product in each category",
+        "expected_sql": "SELECT c.category_name, p.product_name, p.list_price FROM products p JOIN categories c ON p.category_id = c.category_id JOIN (SELECT category_id, MIN(list_price) AS min_price FROM products GROUP BY category_id) mn ON p.category_id = mn.category_id AND p.list_price = mn.min_price ORDER BY p.list_price ASC"
+    },
+    {
+        "id": "FH5",
+        "category": "hard",
+        "question": "Find staff members who have handled orders for more than 200 unique customers",
+        "expected_sql": "SELECT s.first_name, s.last_name, COUNT(DISTINCT o.customer_id) AS unique_customers FROM staffs s JOIN orders o ON s.staff_id = o.staff_id GROUP BY s.staff_id, s.first_name, s.last_name HAVING COUNT(DISTINCT o.customer_id) > 200 ORDER BY unique_customers DESC"
+    },
+    {
+        "id": "FH6",
+        "category": "hard",
+        "question": "What is the total quantity sold per brand?",
+        "expected_sql": "SELECT b.brand_name, SUM(oi.quantity) AS total_quantity_sold FROM brands b JOIN products p ON b.brand_id = p.brand_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY b.brand_id, b.brand_name ORDER BY total_quantity_sold DESC"
+    },
+    {
+        "id": "FH7",
+        "category": "hard",
+        "question": "Which category has the highest average revenue per product?",
+        "expected_sql": "SELECT c.category_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) / COUNT(DISTINCT p.product_id) AS revenue_per_product FROM categories c JOIN products p ON c.category_id = p.category_id JOIN order_items oi ON p.product_id = oi.product_id GROUP BY c.category_name ORDER BY revenue_per_product DESC LIMIT 1"
+    },
+
+    # ── AMBIGUOUS ─────────────────────────────────────────────────────────
+    {
+        "id": "FA1",
+        "category": "ambiguous",
+        "question": "Show me slow-moving products",
+        "expected_sql": "-- AMBIGUOUS_QUERY"
+        # 'slow-moving' needs a sales volume threshold
+    },
+    {
+        "id": "FA2",
+        "category": "ambiguous",
+        "question": "Which staff are underperforming?",
+        "expected_sql": "-- AMBIGUOUS_QUERY"
+        # 'underperforming' needs a metric (revenue? orders? customers?)
+    },
+    {
+        "id": "FA3",
+        "category": "ambiguous",
+        "question": "Find recent orders",
+        "expected_sql": "-- AMBIGUOUS_QUERY"
+        # 'recent' needs a time range
+    },
+
+    # ── IRRELEVANT / NONSENSE ─────────────────────────────────────────────
+    {
+        "id": "FN1",
+        "category": "irrelevant",
+        "question": "What is the capital of France?",
+        "expected_sql": "-- IRRELEVANT_QUERY"
+    },
+    {
+        "id": "FN2",
+        "category": "irrelevant",
+        "question": "How do I fix a flat tire on my bike?",
+        "expected_sql": "-- IRRELEVANT_QUERY"
+    },
+]
+}
 
 BASIC_QUERIES = {
 

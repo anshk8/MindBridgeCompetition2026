@@ -93,7 +93,7 @@ def main():
             if sql == 'SELECT 1 WHERE 1=0':
                 continue
 
-            print(f"\nGenerated SQL:\n{sql}")
+            print(f"\nFinal generated SQL:\n{sql}")
 
         
             # Execute the query

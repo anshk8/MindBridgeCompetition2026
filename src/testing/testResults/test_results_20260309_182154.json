@@ -1,0 +1,475 @@
+[
+  {
+    "id": "M1",
+    "category": "medium",
+    "question": "Show all orders placed in January 2017",
+    "expected_sql": "SELECT order_id, order_date FROM orders WHERE order_date BETWEEN '2017-01-01' AND '2017-01-31'",
+    "generated_sql": "SELECT * FROM orders WHERE order_date >= '2017-01-01' AND order_date < '2017-02-01'",
+    "time_minutes": 0.2037,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT * FROM orders WHERE order_date >= '2017-01-01' AND order_date < '2017-02-01'",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 50,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "M2",
+    "category": "medium",
+    "question": "Which brands have more than 10 products?",
+    "expected_sql": "SELECT b.brand_name, COUNT(p.product_id) as product_count FROM brands b JOIN products p ON b.brand_id = p.brand_id GROUP BY b.brand_name HAVING COUNT(p.product_id) > 10",
+    "generated_sql": "SELECT b.brand_name, COUNT(p.product_id) AS product_count FROM brands b JOIN products p ON b.brand_id = p.brand_id GROUP BY b.brand_id, b.brand_name HAVING COUNT(p.product_id) > 10",
+    "time_minutes": 0.5143,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT b.brand_name, COUNT(p.product_id) AS product_count FROM brands b JOIN products p ON b.brand_id = p.brand_id GROUP BY b.brand_id, b.brand_name HAVING COUNT(p.product_id) > 10",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 4,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "M3",
+    "category": "medium",
+    "question": "List all staff members and their store names",
+    "expected_sql": "SELECT s.first_name, s.last_name, st.store_name FROM staffs s JOIN stores st ON s.store_id = st.store_id",
+    "generated_sql": "SELECT s.first_name, s.last_name, st.store_name FROM staffs s JOIN stores st ON s.store_id = st.store_id",
+    "time_minutes": 0.1854,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT s.first_name, s.last_name, st.store_name FROM staffs s JOIN stores st ON s.store_id = st.store_id",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 10,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "M4",
+    "category": "medium",
+    "question": "Find products priced between 1000 and 2000 dollars",
+    "expected_sql": "SELECT product_name, brand_id, list_price FROM products WHERE list_price BETWEEN 1000 AND 2000",
+    "generated_sql": "SELECT product_name, list_price FROM products WHERE list_price BETWEEN 1000 AND 2000",
+    "time_minutes": 0.186,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT product_name, list_price FROM products WHERE list_price BETWEEN 1000 AND 2000",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 39,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "M5",
+    "category": "medium",
+    "question": "How many orders has each customer placed?",
+    "expected_sql": "SELECT c.first_name, c.last_name, COUNT(o.order_id) as order_count FROM customers c LEFT JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id, c.first_name, c.last_name",
+    "generated_sql": "SELECT c.first_name, c.last_name, COUNT(o.order_id) AS order_count FROM customers c JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id, c.first_name, c.last_name",
+    "time_minutes": 0.44,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT c.first_name, c.last_name, COUNT(o.order_id) AS order_count FROM customers c JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id, c.first_name, c.last_name",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 1445,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "M6",
+    "category": "medium",
+    "question": "Show all products that cost more than the average product price",
+    "expected_sql": "SELECT product_name, list_price FROM products WHERE list_price > (SELECT AVG(list_price) FROM products) ORDER BY list_price DESC",
+    "generated_sql": "SELECT * FROM products WHERE list_price > (SELECT AVG(list_price) FROM products)",
+    "time_minutes": 0.1983,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT * FROM products WHERE list_price > (SELECT AVG(list_price) FROM products)",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 109,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "M7",
+    "category": "medium",
+    "question": "How many orders were placed in each year?",
+    "expected_sql": "SELECT YEAR(order_date) AS year, COUNT(order_id) AS order_count FROM orders GROUP BY YEAR(order_date) ORDER BY year",
+    "generated_sql": "SELECT YEAR(order_date) AS year, COUNT(order_id) AS order_count FROM orders GROUP BY YEAR(order_date) ORDER BY year",
+    "time_minutes": 0.3113,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT YEAR(order_date) AS year, COUNT(order_id) AS order_count FROM orders GROUP BY YEAR(order_date) ORDER BY year",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 3,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "M8",
+    "category": "medium",
+    "question": "List all products from the Trek brand",
+    "expected_sql": "SELECT p.product_name, p.list_price, p.model_year FROM products p JOIN brands b ON p.brand_id = b.brand_id WHERE b.brand_name = 'Trek' ORDER BY p.list_price DESC",
+    "generated_sql": "SELECT p.product_name, p.list_price, b.brand_name FROM products p JOIN brands b ON p.brand_id = b.brand_id WHERE b.brand_name = 'Trek' ORDER BY p.list_price DESC",
+    "time_minutes": 0.1956,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT p.product_name, p.list_price, b.brand_name FROM products p JOIN brands b ON p.brand_id = b.brand_id WHERE b.brand_name = 'Trek' ORDER BY p.list_price DESC",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 135,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "M9",
+    "category": "medium",
+    "question": "Which customers are from Texas?",
+    "expected_sql": "SELECT first_name, last_name, city FROM customers WHERE state = 'TX'",
+    "generated_sql": "SELECT first_name, last_name FROM customers WHERE state = 'TX'",
+    "time_minutes": 0.2287,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT first_name, last_name FROM customers WHERE state = 'TX'",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 142,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "M10",
+    "category": "medium",
+    "question": "How many orders does each store have?",
+    "expected_sql": "SELECT s.store_name, COUNT(o.order_id) AS order_count FROM stores s LEFT JOIN orders o ON s.store_id = o.store_id GROUP BY s.store_id, s.store_name ORDER BY order_count DESC",
+    "generated_sql": "SELECT s.store_name, COUNT(o.order_id) AS order_count FROM stores s JOIN orders o ON s.store_id = o.store_id GROUP BY s.store_id, s.store_name",
+    "time_minutes": 0.3529,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT s.store_name, COUNT(o.order_id) AS order_count FROM stores s JOIN orders o ON s.store_id = o.store_id GROUP BY s.store_id, s.store_name",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 3,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "M11",
+    "category": "medium",
+    "question": "What is the most recent order date in the database?",
+    "expected_sql": "SELECT MAX(order_date) AS most_recent_order FROM orders",
+    "generated_sql": "SELECT MAX(order_date) AS most_recent_order_date FROM orders",
+    "time_minutes": 0.142,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT MAX(order_date) AS most_recent_order_date FROM orders",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 1,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "M12",
+    "category": "medium",
+    "question": "Find customers who have placed more than 3 orders",
+    "expected_sql": "SELECT c.first_name, c.last_name, COUNT(o.order_id) AS order_count FROM customers c JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id, c.first_name, c.last_name HAVING COUNT(o.order_id) > 3 ORDER BY order_count DESC",
+    "generated_sql": "SELECT c.first_name, c.last_name, COUNT(o.order_id) AS order_count FROM customers c JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id, c.first_name, c.last_name HAVING COUNT(o.order_id) > 3 ORDER BY order_count DESC",
+    "time_minutes": 0.3106,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT c.first_name, c.last_name, COUNT(o.order_id) AS order_count FROM customers c JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id, c.first_name, c.last_name HAVING COUNT(o.order_id) > 3 ORDER BY order_count DESC",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 0,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H6",
+    "category": "hard_advanced",
+    "question": "Which staff members manage other staff, and how many people does each manager supervise?",
+    "expected_sql": "SELECT m.first_name, m.last_name, m.staff_id, COUNT(s.staff_id) as direct_reports FROM staffs m JOIN staffs s ON m.staff_id = CAST(s.manager_id AS BIGINT) GROUP BY m.staff_id, m.first_name, m.last_name ORDER BY direct_reports DESC",
+    "generated_sql": "SELECT m.first_name, m.last_name, COUNT(s.staff_id) AS direct_reports FROM staffs m JOIN staffs s ON m.staff_id = CAST(NULLIF(s.manager_id, 'NULL') AS BIGINT) GROUP BY m.staff_id, m.first_name, m.last_name ORDER BY direct_reports DESC",
+    "time_minutes": 1.0534,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT m.first_name, m.last_name, COUNT(s.staff_id) AS direct_reports FROM staffs m JOIN staffs s ON m.staff_id = CAST(NULLIF(s.manager_id, 'NULL') AS BIGINT) GROUP BY m.staff_id, m.first_name, m.last_name ORDER BY direct_reports DESC",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 4,
+      "exec_fixes": 1,
+      "semantic_fixes": 0,
+      "issues": [
+        "Exec error (attempt 0): Conversion Error: Could not convert string 'NULL' to INT64\nLINE 1: ...staffs m JOIN staffs s ON m.staff_id = CAST(s.manager_id AS BIGINT) GROUP BY m...\n                                                  ^"
+      ]
+    }
+  },
+  {
+    "id": "H7",
+    "category": "hard_advanced",
+    "question": "For each brand, show the number of products and the average price, but only for brands that have products in at least 3 different categories",
+    "expected_sql": "SELECT b.brand_name, COUNT(DISTINCT p.product_id) as product_count, AVG(p.list_price) as avg_price FROM brands b JOIN products p ON b.brand_id = p.brand_id GROUP BY b.brand_id, b.brand_name HAVING COUNT(DISTINCT p.category_id) >= 3 ORDER BY product_count DESC",
+    "generated_sql": "SELECT b.brand_name, COUNT(p.product_id) AS product_count, AVG(p.list_price) AS avg_price FROM brands b JOIN products p ON b.brand_id = p.brand_id WHERE b.brand_id IN (SELECT brand_id FROM products GROUP BY brand_id HAVING COUNT(DISTINCT category_id) >= 3) GROUP BY b.brand_id, b.brand_name",
+    "time_minutes": 0.3905,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT b.brand_name, COUNT(p.product_id) AS product_count, AVG(p.list_price) AS avg_price FROM brands b JOIN products p ON b.brand_id = p.brand_id WHERE b.brand_id IN (SELECT brand_id FROM products GROUP BY brand_id HAVING COUNT(DISTINCT category_id) >= 3) GROUP BY b.brand_id, b.brand_name",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 4,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H8",
+    "category": "hard_advanced",
+    "question": "List customers who placed orders in 2016 but not in 2017",
+    "expected_sql": "SELECT c.first_name, c.last_name, c.email FROM customers c WHERE c.customer_id IN (SELECT DISTINCT customer_id FROM orders WHERE YEAR(order_date) = 2016) AND c.customer_id NOT IN (SELECT DISTINCT customer_id FROM orders WHERE YEAR(order_date) = 2017)",
+    "generated_sql": "SELECT c.first_name, c.last_name\nFROM customers c\nWHERE EXISTS (\n    SELECT 1\n    FROM orders o\n    WHERE o.customer_id = c.customer_id\n    AND YEAR(o.order_date) = 2016\n)\nAND NOT EXISTS (\n    SELECT 1\n    FROM orders o\n    WHERE o.customer_id = c.customer_id\n    AND YEAR(o.order_date) = 2017\n)",
+    "time_minutes": 0.244,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT c.first_name, c.last_name\nFROM customers c\nWHERE EXISTS (\n    SELECT 1\n    FROM orders o\n    WHERE o.customer_id = c.customer_id\n    AND YEAR(o.order_date) = 2016\n)\nAND NOT EXISTS (\n    SELECT 1\n    FROM orders o\n    WHERE o.customer_id = c.customer_id\n    AND YEAR(o.order_date) = 2017\n)",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 612,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "H9",
+    "category": "hard_advanced",
+    "question": "What is the month-over-month revenue growth for 2017?",
+    "expected_sql": "SELECT MONTH(o.order_date) as month, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) as monthly_revenue FROM orders o JOIN order_items oi ON o.order_id = oi.order_id WHERE YEAR(o.order_date) = 2017 GROUP BY MONTH(o.order_date) ORDER BY month",
+    "generated_sql": "WITH monthly_revenue AS (SELECT MONTH(o.order_date) AS month, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS revenue FROM orders o JOIN order_items oi ON o.order_id = oi.order_id WHERE YEAR(o.order_date) = 2017 GROUP BY MONTH(o.order_date) ORDER BY month) SELECT month, revenue, LAG(revenue) OVER (ORDER BY month) AS prev_revenue, ROUND((revenue - LAG(revenue) OVER (ORDER BY month)) / NULLIF(LAG(revenue) OVER (ORDER BY month), 0) * 100, 2) AS growth_percent FROM monthly_revenue",
+    "time_minutes": 0.5359,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "WITH monthly_revenue AS (SELECT MONTH(o.order_date) AS month, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS revenue FROM orders o JOIN order_items oi ON o.order_id = oi.order_id WHERE YEAR(o.order_date) = 2017 GROUP BY MONTH(o.order_date) ORDER BY month) SELECT month, revenue, LAG(revenue) OVER (ORDER BY month) AS prev_revenue, ROUND((revenue - LAG(revenue) OVER (ORDER BY month)) / NULLIF(LAG(revenue) OVER (ORDER BY month), 0) * 100, 2) AS growth_percent FROM monthly_revenue",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 12,
+      "exec_fixes": 0,
+      "semantic_fixes": 1,
+      "issues": [
+        "The query does not compute month-over-month revenue growth (difference/percentage change) between months. It only provides revenue and previous revenue values without the actual growth calculation.",
+        "The LAG() function is applied to the revenue aggregation, but the query lacks the final computation step to determine growth."
+      ]
+    }
+  },
+  {
+    "id": "H10",
+    "category": "hard_advanced",
+    "question": "Find products that are stocked in all stores",
+    "expected_sql": "SELECT p.product_name, p.product_id FROM products p WHERE (SELECT COUNT(DISTINCT st.store_id) FROM stocks st WHERE st.product_id = p.product_id) = (SELECT COUNT(*) FROM stores)",
+    "generated_sql": "SELECT p.product_id, p.product_name FROM products p JOIN stocks st ON p.product_id = st.product_id GROUP BY p.product_id, p.product_name HAVING COUNT(DISTINCT st.store_id) = (SELECT COUNT(*) FROM stores)",
+    "time_minutes": 0.3959,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT p.product_id, p.product_name FROM products p JOIN stocks st ON p.product_id = st.product_id GROUP BY p.product_id, p.product_name HAVING COUNT(DISTINCT st.store_id) = (SELECT COUNT(*) FROM stores)",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 313,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "A1",
+    "category": "ambiguous",
+    "question": "Show me the best products",
+    "expected_sql": "SELECT product_name, list_price FROM products ORDER BY list_price DESC LIMIT 10",
+    "generated_sql": "SELECT 1 WHERE 1=0",
+    "time_minutes": 0.1639,
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: What defines 'best products'? Are you referring to highest price, most popular, top-selling, or another metric?",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "A2",
+    "category": "ambiguous",
+    "question": "Which customers are VIP?",
+    "expected_sql": "SELECT c.first_name, c.last_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id JOIN order_items oi ON o.order_id = oi.order_id GROUP BY c.customer_id, c.first_name, c.last_name ORDER BY total_spent DESC LIMIT 20",
+    "generated_sql": "SELECT 1 WHERE 1=0",
+    "time_minutes": 0.0818,
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: How do you define VIP customers? (e.g., minimum order count, spending threshold, etc.)",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "A3",
+    "category": "ambiguous",
+    "question": "What are the popular items?",
+    "expected_sql": "SELECT p.product_name, COUNT(oi.order_id) AS times_ordered FROM products p JOIN order_items oi ON p.product_id = oi.product_id GROUP BY p.product_id, p.product_name ORDER BY times_ordered DESC LIMIT 10",
+    "generated_sql": "SELECT 1 WHERE 1=0",
+    "time_minutes": 0.1468,
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: What defines a popular item? For example, are you looking for items with the highest sales volume, most orders, or another metric?",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "A4",
+    "category": "ambiguous",
+    "question": "Are sales going up or down?",
+    "expected_sql": "SELECT YEAR(o.order_date) AS year, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS annual_revenue FROM orders o JOIN order_items oi ON o.order_id = oi.order_id GROUP BY YEAR(o.order_date) ORDER BY year",
+    "generated_sql": "SELECT 1 WHERE 1=0",
+    "time_minutes": 0.1307,
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: Could you specify the time period (e.g., month-over-month, year-over-year) or metric (e.g., total revenue, order count) you want to analyze for sales trends?",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "N1",
+    "category": "nonsense",
+    "question": "What is the PS5 column in the Sun?",
+    "expected_sql": "SELECT 1",
+    "generated_sql": "SELECT 1 WHERE 1=0",
+    "time_minutes": 0.0467,
+    "graph_state": {
+      "queryIntent": "Irrelevant",
+      "finalSql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "N2",
+    "category": "nonsense",
+    "question": "Show me the weather forecast for the Santa Cruz store",
+    "expected_sql": "SELECT 1",
+    "generated_sql": "SELECT 1 WHERE 1=0",
+    "time_minutes": 0.0837,
+    "graph_state": {
+      "queryIntent": "Irrelevant",
+      "finalSql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "N3",
+    "category": "nonsense",
+    "question": "Which customers have a loyalty score above 100?",
+    "expected_sql": "SELECT 1",
+    "generated_sql": "SELECT 1 WHERE 1=0",
+    "time_minutes": 0.099,
+    "graph_state": {
+      "queryIntent": "Irrelevant",
+      "finalSql": "-- IRRELEVANT_QUERY: This question cannot be answered from the bike store database.",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  },
+  {
+    "id": "N4",
+    "category": "nonsense",
+    "question": "What is the profit margin for each product?",
+    "expected_sql": "SELECT product_name, list_price FROM products ORDER BY list_price DESC",
+    "generated_sql": "SELECT p.product_id, p.product_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM products p JOIN order_items oi ON p.product_id = oi.product_id GROUP BY p.product_id, p.product_name",
+    "time_minutes": 1.5309,
+    "graph_state": {
+      "queryIntent": "Clear",
+      "finalSql": "SELECT p.product_id, p.product_name, SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_revenue FROM products p JOIN order_items oi ON p.product_id = oi.product_id GROUP BY p.product_id, p.product_name",
+      "approved": true,
+      "execution_ok": true,
+      "row_count": 307,
+      "exec_fixes": 0,
+      "semantic_fixes": 0,
+      "issues": []
+    }
+  },
+  {
+    "id": "N5",
+    "category": "nonsense",
+    "question": "How many returned orders are there?",
+    "expected_sql": "SELECT 1",
+    "generated_sql": "SELECT 1 WHERE 1=0",
+    "time_minutes": 0.0871,
+    "graph_state": {
+      "queryIntent": "Ambiguous",
+      "finalSql": "-- AMBIGUOUS_QUERY: What order_status value indicates a returned order?",
+      "approved": null,
+      "execution_ok": null,
+      "row_count": null,
+      "exec_fixes": null,
+      "semantic_fixes": null,
+      "issues": []
+    }
+  }
+]
