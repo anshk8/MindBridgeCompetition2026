@@ -155,7 +155,7 @@ My submission uses a **two-stage agentic pipeline** orchestrated by LangGraph:
 
 - **Graceful Query Handling** — Handle all sorts of user queries, ambiguous and irrelevant queries are detected and handled without crashing the pipeline. (See [Handling Ambiguous & Irrelevant Queries](#3-handling-ambiguous--irrelevant-queries))
 
-- **Multi-Conversational Mode** — (OPTIONAL) Can be turned on and off to prevent interference with automated testing. Allows interactive clarification for ambiguous queries by pausing to ask the user for details, then reframing their answer into a clean, unambiguous question (see [Enabling MultiConversational Mode](#5-enabling-multi-conversational-feature) ) for how to enable). 
+- **Multi-Conversational Mode** — (OPTIONAL) Can be turned on and off to prevent interference with automated testing. Allows interactive clarification for ambiguous queries by pausing to ask the user for details, then reframing their answer into a clean, unambiguous question (see [Enabling Multi Conversational Mode](#5-enabling-multi-conversational-feature) ) for how to enable). 
 
 ---
 
@@ -164,7 +164,7 @@ My submission uses a **two-stage agentic pipeline** orchestrated by LangGraph:
 
 ## Ambiguous Query Handling
 
-If `Multi Conversational` is enabled (see [Enabling MultiConversational Mode](#5-enabling-multi-conversational-feature) ), the pipeline detects vague terms and pauses to ask the user a clarification question. The user's answer is fed back to an LLM which **rewrites the original question** into a clean, unambiguous form before re-running SQL generation. See the example below:
+If `Multi Conversational` is enabled (see [Enabling Multi Conversational Mode](#5-enabling-multi-conversational-feature) ), the pipeline detects vague terms and pauses to ask the user a clarification question. The user's answer is fed back to an LLM which **rewrites the original question** into a clean, unambiguous form before re-running SQL generation. See the example below:
 
 ```
 Enter your question: Show me the best products
@@ -211,7 +211,7 @@ Enter your question:
 
 ## Safe Fallback for All Edge Cases
 
-For every edge case such as ambiguous (when `multiConversational` is off), irrelevant, or unanswerablem, `generate_query` in `agent.py` intercepts any `-- AMBIGUOUS_QUERY`, `-- IRRELEVANT_QUERY`, or `-- UNANSWERABLE_QUERY` marker and replaces it with:
+For every edge case such as ambiguous (when `Multi Conversational` is off), irrelevant, or unanswerablem, `generate_query` in `agent.py` intercepts any `-- AMBIGUOUS_QUERY`, `-- IRRELEVANT_QUERY`, or `-- UNANSWERABLE_QUERY` marker and replaces it with:
 
 ```sql
 SELECT 1 WHERE 1=0
