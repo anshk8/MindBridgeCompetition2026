@@ -43,7 +43,7 @@ def generateReframedQuestion(original: str, clarification_q: str, user_answer: s
     )
     try:
         client = ollama.Client(host=os.getenv('OLLAMA_HOST', 'http://localhost:11434'))
-        model  = os.getenv('OLLAMA_MODEL', 'qwen2.5-coder:14b')
+        model = os.getenv('OLLAMA_MODEL', 'qwen3:32b')
         response = client.chat(
             model=model,
             messages=[{'role': 'user', 'content': prompt}],
