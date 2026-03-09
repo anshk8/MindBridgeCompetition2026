@@ -2,11 +2,12 @@
 
 
 import os
-import ollama
 from src.graph.State import SQLGenerationState
 from src.schemas.SQLAgentSchemas import QueryIntent
 from src.utils.helpers import scoreCandidate
 from src.utils.constants import K_TEMPERATURES
+from src.utils.ollamaClient import ollamaClient, OLLAMA_MODEL
+
 
 
 def generateSqlNode(state: SQLGenerationState, sqlAgent) -> dict:
@@ -42,12 +43,10 @@ def generateReframedQuestion(original: str, clarification_q: str, user_answer: s
         "no punctuation changes, just the question."
     )
     try:
-        client = ollama.Client(host=os.getenv('OLLAMA_HOST', 'http://localhost:11434'))
-        model = os.getenv('OLLAMA_MODEL', 'qwen3:32b')
-        response = client.chat(
-            model=model,
+        response = ollamaClient.chat(
+            model=OLLAMA_MODEL,
             messages=[{'role': 'user', 'content': prompt}],
-            options={'temperature': 0.0},
+            options={'temperature': 0.0, 'think': False},
         )
         reframed = response['message']['content'].strip()
         print(f"🔄 Reframed question: {reframed}")

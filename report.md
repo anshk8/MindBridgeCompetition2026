@@ -36,24 +36,29 @@ pip install -r requirements.txt
 
 ### 3. Install and run Ollama (local inference)
 
-
 **Locally:**
 ```bash
-ollama pull qwen3:32b  # SQL generation + validation
+ollama pull qwen3-coder-next:q8_0  # SQL generation + validation
 ollama pull llama3.2:latest        # ReAct tool-use loop
 ```
 
-**Carleton Server**:
-Ollama defaults to `http://localhost:11434`, see `.env.example`. To point the pipeline at a different host (e.g. Carleton's LLM server), set the `OLLAMA_HOST` environment variable before running.
-Also, set the following two models in an `.env` file:
-```
-# .env file
+**Carleton Server*:
 
-OLLAMA_MODEL=qwen3:32b                 
+Create a `.env` file in the project root (copy from `.env.example`) and fill in your credentials:
+
+```
+# .env
+
+# Models
+OLLAMA_MODEL=qwen3-coder-next:q8_0
 OLLAMA_REACT_MODEL=llama3.2:latest
-OLLAMA_HOST=<carleton_server_url>
 
+# Carleton LLM server
+OLLAMA_HOST=<carleton_server_URL>
+OLLAMA_API_KEY=<rcs_carleton_API_key>
 ```
+
+> `OLLAMA_HOST` defaults to `http://localhost:11434` if not set. `OLLAMA_API_KEY` is only required for the Carleton server — leave it unset for a local Ollama instance.
 
 ### 4. Run the interactive agent
 
@@ -228,8 +233,8 @@ This system is built as a **multi-agent architecture** where each agent has a cl
 **Role:** Converts natural language questions into SQL queries.
 
 **Models:**
-- `qwen3:32b` — SQL generation. Strong code reasoning and structured JSON output via schema enforcement.
-- `llama3.2:latest` — ReAct tool-use loop. Used separately to keep the tool-use rounds lightweight and fast — llama3.2 handles tool decisions quickly without the overhead of a full 32b model call per ReAct round.
+- `qwen3-coder-next:q8_0` — SQL generation. A code-specialised Qwen3 variant offering strong SQL reasoning and reliable structured JSON output via schema enforcement.
+- `llama3.2:latest` — ReAct tool-use loop. Used separately to keep the tool-use rounds lightweight and fast — llama3.2 handles tool decisions quickly without the overhead of a full coder model call per ReAct round.
 - `all-MiniLM-L6-v2` — Sentence embedding for dynamic few-shot retrieval (via `sentence-transformers`).
 
 ### Techniques Used:
@@ -340,7 +345,7 @@ utils/prompts.py
 **Role:**  
 Ensures that generated SQL is both executable and semantically correct before returning to the user.
 
-**Model: `qwen3:32b`** — same model as SQL generation, reused here for execution repair and semantic review since it already has strong code reasoning and schema familiarity from the generation phase.
+**Model: `qwen3-coder-next:q8_0`** — same model as SQL generation, reused here for execution repair and semantic review since it already has strong code reasoning and schema familiarity from the generation phase.
 
 ### Techniques Used
 
@@ -400,6 +405,7 @@ carleton_competition_winter_2026/
     ├── schemas/                    # Pydantic output schemas for SQLAgent + ValidatorAgent
     │
     ├── utils/
+    │   ├── ollamaClient.py         # Shared Ollama client instance (imported by all agents)
     │   ├── helpers.py              # loadSchema, buildSchemaContext, executeSQL
     │   ├── prompts.py              # System + user prompt builders
     │   ├── fewShotExamples.py      # Bank of few-shot examples for SQLAgent

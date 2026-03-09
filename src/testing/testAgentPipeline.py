@@ -8,6 +8,7 @@ then prints the final LangGraph state and saves all results to a JSON file.
 import sys
 import os
 import json
+import time
 from datetime import datetime
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -21,7 +22,8 @@ from src.testing.queriesToTest import TEST_MULTICONVERSATION_QUERIES
 
 # ── Configure which categories to run ─────────────────────────────── #
 # CATEGORIES = ['easy', 'medium', 'hard', 'hard_advanced', 'ambiguous', 'nonsense']
-CATEGORIES = ['clarification', 'irrelevant']  # focus on challenging categories for testing
+CATEGORIES = ['medium', 'hard', 'ambiguous', 'nonsense']
+# CATEGORIES = ['clarification', 'irrelevant']  # focus on challenging categories for testing
 
 
 def run(categories: list[str] = CATEGORIES) -> list[dict]:
@@ -31,14 +33,16 @@ def run(categories: list[str] = CATEGORIES) -> list[dict]:
     results = []
 
     for category in categories:
-        queries = TEST_MULTICONVERSATION_QUERIES.get(category, [])
+        queries = ALL_QUERIES.get(category, [])
         if not queries:
             continue
 
         print(f'\n── {category.upper()} ({"─" * (60 - len(category))})')
 
         for q in queries:
+            t0 = time.monotonic()
             sql = writer.generate_query(q['question'])
+            elapsed_min = round((time.monotonic() - t0) / 60, 4)
             state: dict = getattr(writer, '_lastGraphResult', {}) or {}
             validation: dict = state.get('validation') or {}
 
@@ -48,6 +52,7 @@ def run(categories: list[str] = CATEGORIES) -> list[dict]:
                 'question':      q['question'],
                 'expected_sql':  q.get('expected_sql'),
                 'generated_sql': sql,
+                'time_minutes':  elapsed_min,
                 'graph_state': {
                     'queryIntent':    state.get('queryIntent'),
                     'finalSql':       state.get('finalSql'),
@@ -66,6 +71,7 @@ def run(categories: list[str] = CATEGORIES) -> list[dict]:
             print(f"  intent   : {gs['queryIntent']}")
             print(f"  sql      : {sql[:120]}")
             print(f"  approved : {gs['approved']}  |  exec_ok: {gs['execution_ok']}  |  rows: {gs['row_count']}")
+            print(f"  time     : {elapsed_min} min")
             if gs['exec_fixes'] or gs['semantic_fixes']:
                 print(f"  fixes    : exec={gs['exec_fixes']}  semantic={gs['semantic_fixes']}")
             if gs['issues']:
