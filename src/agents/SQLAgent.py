@@ -6,11 +6,10 @@ SQL Generator Agent
 import numpy as np
 from typing import List
 from sentence_transformers import SentenceTransformer
-from src.utils.helpers import loadSchema, buildSchemaContext
+from src.utils.helpers import loadSchema, buildSchemaContext, buildFewShotContext
 from src.utils.prompts import (
     buildSystemPrompt,
     buildUserPrompt,
-    buildFewShotContext,
     buildToolSystemPrompt,
 )
 from src.schemas.SQLAgentSchemas import SQLResult
