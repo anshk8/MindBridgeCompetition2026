@@ -1,6 +1,7 @@
 import duckdb
-from typing import Dict, Any
+from typing import Dict, Any, Sequence
 from src.schemas.ValidatorAgentSchemas import ValidationResult
+from src.utils.fewShotExamples import FewShotExample
 
 
 def loadSchema(db_path: str) -> Dict[str, Any]:
@@ -91,6 +92,29 @@ def buildSchemaContext(schema_info: Dict[str, Any]) -> str:
                 contextParts.append("  | " + " | ".join(rowValues) + " |")
 
     return "\n".join(contextParts)
+
+
+def buildFewShotContext(examples: Sequence[FewShotExample]) -> str:
+    """
+    Build few-shot examples context for prompt.
+    
+    Args:
+        examples: List of FewShotExample objects with question, sql, and explanation attributes
+        
+    Returns:
+        str: Formatted few-shot examples string
+    """
+    exampleParts = []
+
+    for i, ex in enumerate(examples, 1):
+        exampleParts.append(f"Example {i}:")
+        exampleParts.append(f"Question: {ex.question}")
+        exampleParts.append(f"SQL: {ex.sql}")
+        if ex.explanation:
+            exampleParts.append(f"Explanation: {ex.explanation}")
+        exampleParts.append("")
+
+    return "\n".join(exampleParts)
 
 
 def executeSQL(db_path: str, sql: str) -> Dict[str, Any]:

@@ -1,9 +1,6 @@
 # prompts.py: Contains all system/user prompt building functions used by the agents across the whole project
 
 
-from typing import List, Any
-
-
 # ================================================================= #
 # SQL Agent Prompts                                                  #
 # ================================================================= #
@@ -142,28 +139,6 @@ You will respond in JSON with four fields:
   "clarification_question"  — short question if Ambiguous, else ""
   "sql"                     — the final SQL query (raw SQL only, empty string if Irrelevant)
 """
-
-def buildFewShotContext(examples: List[Any]) -> str:
-    """
-    Build few-shot examples context for prompt.
-    
-    Args:
-        examples: List of FewShotExample objects with question, sql, and explanation attributes
-        
-    Returns:
-        str: Formatted few-shot examples string
-    """
-    exampleParts = []
-
-    for i, ex in enumerate(examples, 1):
-        exampleParts.append(f"Example {i}:")
-        exampleParts.append(f"Question: {ex.question}")
-        exampleParts.append(f"SQL: {ex.sql}")
-        if ex.explanation:
-            exampleParts.append(f"Explanation: {ex.explanation}")
-        exampleParts.append("")
-
-    return "\n".join(exampleParts)
 
 
 def buildUserPrompt(question: str, schemaContext: str, fewShotContext: str) -> str:

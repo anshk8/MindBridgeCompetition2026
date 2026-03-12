@@ -21,3 +21,13 @@ ollamaClient = ollama.Client(
     host=os.getenv('OLLAMA_HOST', 'http://localhost:11434'),
     headers=_headers,
 )
+
+#List all Carleton Models on Server
+# def main():
+#     models = ollamaClient.list().get("models", [])
+#     print("Available models:")
+#     for m in models:
+#         print("-", m["model"])
+
+# if __name__ == "__main__":
+#     main()

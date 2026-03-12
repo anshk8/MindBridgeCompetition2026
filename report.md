@@ -19,6 +19,9 @@
 ---
 
 # 0. How to Run
+> **Shared Ollama client note:** The project uses a shared Ollama client instance defined in `src/utils/ollamaClient.py`.  
+> It reads `OLLAMA_MODEL`, `OLLAMA_REACT_MODEL`, `OLLAMA_HOST`, and `OLLAMA_API_KEY` from the `.env` file, so you do not need to construct separate Ollama clients in each agent.
+
 
 ### 1. Create and activate a virtual environment
 
@@ -414,6 +417,8 @@ carleton_competition_winter_2026/
     └── testing/                    # I used an automated script to help improve my submission
 ```
 
+### Testing Folder
+The `src/testing` folder contains the local evaluation method I used during development. There is a `queriesToTest.py` containing easy, medium, hard, ambiguous, and irrelevant prompts. The `testAgentPipeline.py` invokes my Langgraph workflow to mimic the evaluation environment for the competition. These tests help me iterate on validation accuracy and edge-case handling before my submission.
 
 ---
 
