@@ -418,8 +418,7 @@ carleton_competition_winter_2026/
 ```
 
 ### Testing Folder
-
-The `src/testing` folder contains the local evaluation method I used during development. There is a `queriesToTest.py` containing easy, medium, hard, ambiguous, and irrelevant prompts. The `testAgentPipeline.py` invokes my Langgraph workflow to mimic the evaluation environment for the competition. These tests help me iterate, validation accuracy and edge-case handling before my submission. 
+The `src/testing` folder contains the local evaluation method I used during development. There is a `queriesToTest.py` containing easy, medium, hard, ambiguous, and irrelevant prompts. The `testAgentPipeline.py` invokes my Langgraph workflow to mimic the evaluation environment for the competition. These tests help me iterate on validation accuracy and edge-case handling before my submission.
 
 ---
 
