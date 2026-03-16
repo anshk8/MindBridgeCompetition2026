@@ -1,6 +1,6 @@
 
 # MindBridge × Carleton SQL Query Writer Agent (2026)
-**Author:** Ansh Kakkar (Student#: 101298368) 
+**Author:** Ansh Kakkar  
 **Due Date:** March 13, 2026  
 
 
